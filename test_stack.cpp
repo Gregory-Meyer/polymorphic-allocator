@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <vector>
+#include <mutex>
 
 constexpr unsigned long long
 operator""_KiB(unsigned long long literal) noexcept {
@@ -33,14 +34,15 @@ using VectorT = std::vector<T, gregjm::PolymorphicAllocatorAdaptor<T>>;
 using StringT = std::basic_string<char, std::char_traits<char>,
                                   gregjm::PolymorphicAllocatorAdaptor<char>>;
 using AllocT = gregjm::FallbackAllocator<
-    gregjm::PoolAllocator<512, gregjm::GlobalAllocator>,
-    gregjm::GlobalAllocator
+    gregjm::PoolAllocator<1_MiB, gregjm::GlobalAllocator<std::mutex>,
+                          std::mutex>,
+    gregjm::GlobalAllocator<std::mutex>
 >;
 
-// using AllocT = gregjm::ReportingAllocator<gregjm::GlobalAllocator>;
+// using AllocT = gregjm::GlobalAllocator<std::mutex>;
 
 void double_alloc(gregjm::PolymorphicAllocator &alloc) {
-    constexpr std::size_t SIZE = 1 << 10;
+    constexpr std::size_t SIZE = 1 << 20;
 
     VectorT<double> numbers{ gregjm::make_adaptor<double>(alloc) };
 
@@ -59,7 +61,7 @@ void double_alloc(gregjm::PolymorphicAllocator &alloc) {
 }
 
 void string_alloc(gregjm::PolymorphicAllocator &alloc) {
-    constexpr std::size_t SIZE = 1 << 10;
+    constexpr std::size_t SIZE = 1 << 20;
     constexpr char LONG_STRING[] = "this is a long string that won't fit";
     constexpr char SHORT_STRING[] = "short";
 
