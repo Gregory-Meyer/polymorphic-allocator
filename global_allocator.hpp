@@ -7,21 +7,19 @@
 
 #include <climits> // SIZE_MAX
 #include <cstdlib> // std::malloc, std::free
-#include <mutex> // std::lock_guard
+#include <mutex> // std::scoped_lock
 #include <unordered_set> // std::unordered_set
 
 namespace gregjm {
 
 template <typename Mutex = DummyMutex>
 class GlobalAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<Mutex>;
 
 public:
     GlobalAllocator() = default;
 
     GlobalAllocator(GlobalAllocator &&other) : blocks_{ }, mutex_{ } {
-        LockT self_lock{ mutex_ };
-        LockT other_lock{ other.mutex_ };
+        const std::scoped_lock lock{ mutex_, other.mutex_ };
 
         blocks_ = std::move(other.blocks_);
     }
@@ -31,8 +29,7 @@ public:
             return *this;
         }
 
-        LockT self_lock{ mutex_ };
-        LockT other_lock{ other.mutex_ };
+        const std::scoped_lock lock{ mutex_, other.mutex_ };
 
         blocks_ = std::move(other.blocks_);
 
@@ -51,7 +48,7 @@ private:
         const MemoryBlock block{ memory, size, alignment };
 
         {
-            LockT lock{ mutex_ };
+            const std::scoped_lock lock{ mutex_ };
             blocks_.insert(block);
         }
 
@@ -59,13 +56,13 @@ private:
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         deallocate_locked(block);
     }
 
     void deallocate_all_impl() override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         while (not blocks_.empty()) {
             deallocate_locked(*blocks_.begin());
@@ -77,7 +74,7 @@ private:
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         return static_cast<bool>(blocks_.count(block));
     }

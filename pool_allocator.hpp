@@ -11,7 +11,7 @@
 #include <cstddef> // std::size_t
 #include <algorithm> // std::make_heap, std::push_heap
 #include <memory> // std::unique_ptr
-#include <mutex> // std::lock_guard
+#include <mutex> // std::scoped_lock
 #include <queue> // std::priority_queue
 #include <utility> // std::swap, std::forward
 #include <type_traits> // std::is_constructible_v,
@@ -54,14 +54,21 @@ private:
 
 template <std::size_t PoolSize, typename Allocator, typename Mutex = DummyMutex>
 class PoolAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<Mutex>;
     using PoolT = StackAllocator<PoolSize>;
     using OwnerT = std::unique_ptr<PoolT,
                                    detail::PoolAllocatorDeleter<Allocator>>;
     using VectorT = std::vector<OwnerT, PolymorphicAllocatorAdaptor<OwnerT>>;
 
 public:
-    PoolAllocator(const PoolAllocator &lhs) = delete;
+    PoolAllocator(const PoolAllocator &other) = delete;
+
+    PoolAllocator(PoolAllocator &&other) : mutex_{ } {
+        const std::scoped_lock lock{ mutex_, other.mutex_ };
+
+        alloc_ = std::move(other.alloc_);
+        deleter_ = std::move(other.deleter_);
+        pools_ = std::move(other.pools_);
+    }
 
     template <typename ...Args,
               typename = std::enable_if_t<std::is_constructible_v<Allocator,
@@ -71,7 +78,21 @@ public:
         : alloc_{ std::forward<Args>(args)... }
     { }
 
-    PoolAllocator& operator=(const PoolAllocator &rhs) = delete;
+    PoolAllocator& operator=(const PoolAllocator &other) = delete;
+
+    PoolAllocator& operator=(PoolAllocator &&other) {
+        if (this == &other) {
+            return *this;
+        }
+
+        const std::scoped_lock lock{ mutex_, other.mutex_ };
+
+        alloc_ = std::move(other.alloc_);
+        deleter_ = std::move(other.deleter_);
+        pools_ = std::move(other.pools_);
+
+        return *this;
+    }
 
 private:
     MemoryBlock allocate_impl(const std::size_t count,
@@ -80,7 +101,7 @@ private:
             throw BadAllocationException{ };
         }
 
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         if (pools_.empty()) {
             return allocate_new(count, alignment);
@@ -99,7 +120,7 @@ private:
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         for (const auto &pool_ptr : pools_) {
             if (pool_ptr->owns(block)) {
@@ -113,7 +134,7 @@ private:
     }
 
     void deallocate_all_impl() override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         for (const auto &pool_ptr : pools_) {
             pool_ptr->deallocate_all();
@@ -125,7 +146,7 @@ private:
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         for (const auto &pool_ptr : pools_) {
             if (pool_ptr->owns(block)) {
@@ -163,7 +184,7 @@ private:
 
         for (auto current = pools_.begin(); current < pools_.end(); ) {
             using std::swap;
-            
+
             const auto left = current + (current - pools_.begin()) + 1;
             const auto right = left + 1;
 

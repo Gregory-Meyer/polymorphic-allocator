@@ -16,6 +16,7 @@ namespace gregjm {
 template <typename Primary, typename Secondary>
 class FallbackAllocator final : public PolymorphicAllocator {
     using PairT = std::pair<Primary, Secondary>;
+    
 public:
     FallbackAllocator() = default;
 

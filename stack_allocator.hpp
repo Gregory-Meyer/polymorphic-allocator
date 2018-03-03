@@ -7,7 +7,7 @@
 
 #include <cstdint> // std::uint8_t
 #include <array> // std::array
-#include <mutex> // std::lock_guard
+#include <mutex> // std::scoped_lock
 
 #include <iostream>
 
@@ -15,11 +15,9 @@ namespace gregjm {
 
 template <std::size_t N, typename Mutex = DummyMutex>
 class StackAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<Mutex>;
-    
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         if (size + alignment - (size % alignment) > max_size_locked()) {
             throw BadAllocationException{ };
@@ -34,7 +32,7 @@ class StackAllocator final : public PolymorphicAllocator {
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         if (not owns_locked(block)) {
             throw NotOwnedException{ };
@@ -49,19 +47,19 @@ class StackAllocator final : public PolymorphicAllocator {
     }
 
     void deallocate_all_impl() override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         stack_pointer_ = begin();
     }
 
     std::size_t max_size_impl() const override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         return max_size_locked();
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        LockT lock{ mutex_ };
+        const std::scoped_lock lock{ mutex_ };
 
         return owns_locked(block);
     }
