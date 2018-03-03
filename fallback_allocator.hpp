@@ -14,7 +14,7 @@
 namespace gregjm {
 
 template <typename Primary, typename Secondary>
-class FallbackAllocator : public PolymorphicAllocator {
+class FallbackAllocator final : public PolymorphicAllocator {
     using PairT = std::pair<Primary, Secondary>;
 public:
     FallbackAllocator() = default;
@@ -78,19 +78,19 @@ private:
         return primary().owns(block) or secondary().owns(block);
     }
 
-    Primary& primary() noexcept {
+    constexpr inline Primary& primary() noexcept {
         return allocs_.first;
     }
 
-    const Primary& primary() const noexcept {
+    constexpr inline const Primary& primary() const noexcept {
         return allocs_.first;
     }
 
-    Secondary& secondary() noexcept {
+    constexpr inline Secondary& secondary() noexcept {
         return allocs_.second;
     }
 
-    const Secondary& secondary() const noexcept {
+    constexpr inline const Secondary& secondary() const noexcept {
         return allocs_.second;
     }
 

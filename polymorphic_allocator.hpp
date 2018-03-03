@@ -23,23 +23,24 @@ bool operator!=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
 
 class PolymorphicAllocator {
 public:
-    MemoryBlock allocate(const std::size_t count, const std::size_t alignment) {
+    inline MemoryBlock allocate(const std::size_t count,
+                                const std::size_t alignment) {
         return allocate_impl(count, alignment);
     }
 
-    void deallocate(const MemoryBlock block) {
+    inline void deallocate(const MemoryBlock block) {
         deallocate_impl(block);
     }
 
-    void deallocate_all() {
+    inline void deallocate_all() {
         deallocate_all_impl();
     }
 
-    std::size_t max_size() const {
+    inline std::size_t max_size() const {
         return max_size_impl();
     }
 
-    bool owns(const MemoryBlock block) const {
+    inline bool owns(const MemoryBlock block) const {
         return owns_impl(block);
     }
 

@@ -159,11 +159,11 @@ private:
     // update priority of front heap element
     // assumes we have a lock
     void fix_down() {
-        using std::swap;
-
         const std::size_t size = pools_.front()->max_size();
 
         for (auto current = pools_.begin(); current < pools_.end(); ) {
+            using std::swap;
+            
             const auto left = current + (current - pools_.begin()) + 1;
             const auto right = left + 1;
 
