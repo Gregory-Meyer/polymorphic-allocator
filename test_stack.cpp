@@ -34,7 +34,7 @@ using VectorT = std::vector<T, gregjm::PolymorphicAllocatorAdaptor<T>>;
 using StringT = std::basic_string<char, std::char_traits<char>,
                                   gregjm::PolymorphicAllocatorAdaptor<char>>;
 using AllocT = gregjm::FallbackAllocator<
-    gregjm::PoolAllocator<1_MiB, gregjm::GlobalAllocator<std::mutex>,
+    gregjm::PoolAllocator<8_MiB, gregjm::GlobalAllocator<std::mutex>,
                           std::mutex>,
     gregjm::GlobalAllocator<std::mutex>
 >;

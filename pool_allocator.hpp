@@ -8,8 +8,9 @@
 #include "stack_allocator.hpp" // gregjm::StackAllocator
 #include "dummy_mutex.hpp" // gregjm::DummyMutex
 
-#include <cstddef> // std::size_t
-#include <algorithm> // std::make_heap, std::push_heap
+#include <cstddef> // std::size_t, std::ptrdiff_t
+#include <cstring> // std::memcpy
+#include <algorithm> // std::make_heap, std::push_heap, std::find_if
 #include <memory> // std::unique_ptr
 #include <mutex> // std::scoped_lock
 #include <queue> // std::priority_queue
@@ -95,42 +96,73 @@ public:
     }
 
 private:
-    MemoryBlock allocate_impl(const std::size_t count,
+    MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
-        if (count > PoolSize) {
+        if (size > PoolSize) {
             throw BadAllocationException{ };
         }
 
         const std::scoped_lock lock{ mutex_ };
 
         if (pools_.empty()) {
-            return allocate_new(count, alignment);
+            return allocate_new(size, alignment);
         }
 
         try {
             const MemoryBlock block =
-                pools_.front()->allocate(count, alignment);
+                pools_.front()->allocate(size, alignment);
 
             fix_down();
 
             return block;
         } catch (const BadAllocationException &e) {
-            return allocate_new(count, alignment);
+            return allocate_new(size, alignment);
+        }
+    }
+
+    MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
+                                const std::size_t alignment) override {
+        const std::scoped_lock lock{ mutex_ };
+
+        const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
+                                           [block](const OwnerT &owner) {
+                                               return owner->owns(block);
+                                           });
+
+        if (owner_it == pools_.end()) {
+            throw NotOwnedException{ };
+        }
+
+        const auto owner = (*owner_it).get();
+
+        try {
+            return owner->reallocate(block, size, alignment);
+        } catch (const BadAllocationException &e) {
+            const MemoryBlock new_block = allocate(size, alignment);
+
+            std::memcpy(new_block.memory, block.memory, block.size);
+
+            owner->deallocate(block);
+            fix_up(owner_it);
+
+            return new_block;
         }
     }
 
     void deallocate_impl(const MemoryBlock block) override {
         const std::scoped_lock lock{ mutex_ };
 
-        for (const auto &pool_ptr : pools_) {
-            if (pool_ptr->owns(block)) {
-                pool_ptr->deallocate(block);
-                
-                return;
-            }
+        const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
+                                           [block](const OwnerT &owner) {
+                                               return owner->owns(block);
+                                           });
+
+        if (owner_it == pools_.end()) {
+            throw NotOwnedException{ };
         }
         
-        throw NotOwnedException{ };
+        (*owner_it)->deallocate(block);
+        fix_up(owner_it);
     }
 
     void deallocate_all_impl() override {
@@ -214,6 +246,29 @@ private:
                 break;
             } else {
                 break;
+            }
+        }
+    }
+
+    // update priority of given heap element
+    // assumes we have a lock
+    // assumes current is dereferencable
+    void fix_up(typename VectorT::iterator current) {
+        const auto size = (*current)->max_size();
+
+        for (; current >= pools_.begin(); ) {
+            const auto element_index = current - pools_.begin();
+            const auto parent = current - (element_index + 2) / 2;
+
+            if (parent < pools_.begin()) {
+                return;
+            }
+
+            if ((*parent)->max_size() < size) {
+                swap(*current, *parent);
+                current = parent;
+            } else {
+                return;
             }
         }
     }

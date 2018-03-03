@@ -55,6 +55,27 @@ private:
         return block;
     }
 
+    MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
+                                const std::size_t alignment) override {
+        const std::scoped_lock lock{ mutex_ };
+
+        if (blocks_.count(block) == 0) {
+            throw NotOwnedException{ };
+        }
+
+        void *const realloc_memory = std::realloc(block.memory, size);
+
+        if (realloc_memory == nullptr) {
+            throw BadAllocationException{ };
+        }
+
+        const MemoryBlock realloc_block{ realloc_memory, size, alignment };
+        blocks_.erase(block);
+        blocks_.insert(realloc_block);
+
+        return block;
+    }
+
     void deallocate_impl(const MemoryBlock block) override {
         const std::scoped_lock lock{ mutex_ };
 

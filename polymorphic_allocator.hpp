@@ -23,9 +23,15 @@ bool operator!=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
 
 class PolymorphicAllocator {
 public:
-    inline MemoryBlock allocate(const std::size_t count,
+    inline MemoryBlock allocate(const std::size_t size,
                                 const std::size_t alignment) {
-        return allocate_impl(count, alignment);
+        return allocate_impl(size, alignment);
+    }
+    
+    inline MemoryBlock reallocate(const MemoryBlock block,
+                                  const std::size_t size,
+                                  const std::size_t alignment) {
+        return reallocate_impl(block, size, alignment);
     }
 
     inline void deallocate(const MemoryBlock block) {
@@ -44,9 +50,13 @@ public:
         return owns_impl(block);
     }
 
+
 private:
-    virtual MemoryBlock allocate_impl(std::size_t count,
+    virtual MemoryBlock allocate_impl(std::size_t size,
                                       std::size_t alignment) = 0;
+
+    virtual MemoryBlock reallocate_impl(MemoryBlock block, std::size_t size,
+                                        std::size_t alignment) = 0;
 
     virtual void deallocate_impl(MemoryBlock block) = 0;
 

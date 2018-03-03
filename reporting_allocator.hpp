@@ -32,6 +32,19 @@ private:
         return block;
     }
 
+    MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
+                                const std::size_t alignment) override {
+        const MemoryBlock realloc_block = alloc_.reallocate(size, alignment);
+
+        *os_ << "allocator " << &alloc_ << " reallocated a block at "
+            << block.memory << " with size " << block.size << " and alignment "
+            << block.alignment << " to a block at " << realloc_block.memory
+            << " with size " << realloc_block.size << " and alignment "
+            << realloc_block.alignment << '\n';
+
+        return realloc_block;
+    }
+
     void deallocate_impl(const MemoryBlock block) override {
         alloc_.deallocate(block);
 

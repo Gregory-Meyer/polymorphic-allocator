@@ -6,6 +6,7 @@
 #include "dummy_mutex.hpp" // gregjm::DummyMutex
 
 #include <cstdint> // std::uint8_t
+#include <cstring> // std::memcpy
 #include <array> // std::array
 #include <mutex> // std::scoped_lock
 
@@ -19,31 +20,28 @@ class StackAllocator final : public PolymorphicAllocator {
                               const std::size_t alignment) override {
         const std::scoped_lock lock{ mutex_ };
 
-        if (size + alignment - (size % alignment) > max_size_locked()) {
-            throw BadAllocationException{ };
-        }
-
-        align_top(alignment);
-
-        const MemoryBlock block{ stack_pointer_, size, alignment };
-        push(size);
-
-        return block;
+        return allocate_locked(size, alignment);
     }
 
-    void deallocate_impl(const MemoryBlock block) override {
+    MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
+                                const std::size_t alignment) override {
         const std::scoped_lock lock{ mutex_ };
 
         if (not owns_locked(block)) {
             throw NotOwnedException{ };
         }
 
-        const std::uint8_t *const memory =
-            reinterpret_cast<std::uint8_t*>(block.memory) + block.size;
+        const MemoryBlock realloc_block = allocate_locked(size, alignment);
+        std::memcpy(realloc_block.memory, block.memory, block.size);
+        deallocate_locked(block);
 
-        if (reinterpret_cast<const void*>(memory) == stack_pointer_) {
-            pop(block.size);
-        }
+        return realloc_block;
+    }
+
+    void deallocate_impl(const MemoryBlock block) override {
+        const std::scoped_lock lock{ mutex_ };
+
+        deallocate_locked(block);
     }
 
     void deallocate_all_impl() override {
@@ -109,6 +107,32 @@ class StackAllocator final : public PolymorphicAllocator {
         sp -= size;
 
         stack_pointer_ = sp;
+    }
+
+    MemoryBlock allocate_locked(const std::size_t size,
+                                const std::size_t alignment) {
+        if (size + alignment - (size % alignment) > max_size_locked()) {
+            throw BadAllocationException{ };
+        }
+
+        align_top(alignment);
+        const MemoryBlock block{ stack_pointer_, size, alignment };
+        push(size);
+
+        return block;
+    }
+
+    void deallocate_locked(const MemoryBlock block) {
+        if (not owns_locked(block)) {
+            throw NotOwnedException{ };
+        }
+
+        const std::uint8_t *const memory =
+            reinterpret_cast<std::uint8_t*>(block.memory) + block.size;
+
+        if (reinterpret_cast<const void*>(memory) == stack_pointer_) {
+            pop(block.size);
+        }
     }
 
     std::size_t max_size_locked() const {
