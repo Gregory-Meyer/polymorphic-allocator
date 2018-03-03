@@ -6,11 +6,12 @@
                                      // gregjm::PolymorphicAllocatorAdaptor,
                                      // gregjm::NotOwnedException
 #include "stack_allocator.hpp" // gregjm::StackAllocator
+#include "dummy_mutex.hpp" // gregjm::DummyMutex
 
 #include <cstddef> // std::size_t
 #include <algorithm> // std::make_heap, std::push_heap
 #include <memory> // std::unique_ptr
-#include <mutex> // std::mutex, std::lock_guard
+#include <mutex> // std::lock_guard
 #include <queue> // std::priority_queue
 #include <utility> // std::swap, std::forward
 #include <type_traits> // std::is_constructible_v,
@@ -51,15 +52,17 @@ private:
 
 } // namespace detail
 
-template <std::size_t PoolSize, typename Allocator>
+template <std::size_t PoolSize, typename Allocator, typename Mutex = DummyMutex>
 class PoolAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<std::mutex>;
+    using LockT = std::lock_guard<Mutex>;
     using PoolT = StackAllocator<PoolSize>;
     using OwnerT = std::unique_ptr<PoolT,
                                    detail::PoolAllocatorDeleter<Allocator>>;
     using VectorT = std::vector<OwnerT, PolymorphicAllocatorAdaptor<OwnerT>>;
 
 public:
+    PoolAllocator(const PoolAllocator &lhs) = delete;
+
     template <typename ...Args,
               typename = std::enable_if_t<std::is_constructible_v<Allocator,
                                                                   Args...>>>
@@ -67,6 +70,8 @@ public:
         noexcept(std::is_nothrow_constructible_v<Allocator, Args...>)
         : alloc_{ std::forward<Args>(args)... }
     { }
+
+    PoolAllocator& operator=(const PoolAllocator &rhs) = delete;
 
 private:
     MemoryBlock allocate_impl(const std::size_t count,
@@ -192,7 +197,7 @@ private:
         }
     }
 
-    mutable std::mutex mutex_;
+    mutable Mutex mutex_;
     Allocator alloc_;
     detail::PoolAllocatorDeleter<Allocator> deleter_{ alloc_ };
     VectorT pools_{ make_adaptor<OwnerT>(alloc_) };

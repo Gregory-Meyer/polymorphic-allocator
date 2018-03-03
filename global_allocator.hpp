@@ -3,16 +3,18 @@
 
 #include "polymorphic_allocator.hpp" // gregjm::PolymorphicAllocator,
                                      // gregjm::MemoryBlock
+#include "dummy_mutex.hpp"
 
 #include <climits> // SIZE_MAX
 #include <cstdlib> // std::malloc, std::free
-#include <mutex> // std::mutex, std::lock_guard
+#include <mutex> // std::lock_guard
 #include <unordered_set> // std::unordered_set
 
 namespace gregjm {
 
+template <typename Mutex = DummyMutex>
 class GlobalAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<std::mutex>;
+    using LockT = std::lock_guard<Mutex>;
 
 public:
     GlobalAllocator() = default;
@@ -25,6 +27,10 @@ public:
     }
 
     GlobalAllocator& operator=(GlobalAllocator &&other) {
+        if (&other == this) {
+            return *this;
+        }
+
         LockT self_lock{ mutex_ };
         LockT other_lock{ other.mutex_ };
 
@@ -45,7 +51,7 @@ private:
         const MemoryBlock block{ memory, size, alignment };
 
         {
-            std::lock_guard<std::mutex> lock{ mutex_ };
+            LockT lock{ mutex_ };
             blocks_.insert(block);
         }
 
@@ -85,7 +91,7 @@ private:
     }
 
     std::unordered_set<MemoryBlock> blocks_;
-    mutable std::mutex mutex_;
+    mutable Mutex mutex_;
 };
 
 } // namespace gregjm

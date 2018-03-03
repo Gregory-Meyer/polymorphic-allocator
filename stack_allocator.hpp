@@ -3,18 +3,19 @@
 
 #include "polymorphic_allocator.hpp" // gregjm::PolymorphicAllocator,
                                      // gregjm::MemoryBlock
+#include "dummy_mutex.hpp" // gregjm::DummyMutex
 
 #include <cstdint> // std::uint8_t
 #include <array> // std::array
-#include <mutex> // std::mutex, std::lock_guard
+#include <mutex> // std::lock_guard
 
 #include <iostream>
 
 namespace gregjm {
 
-template <std::size_t N>
+template <std::size_t N, typename Mutex = DummyMutex>
 class StackAllocator final : public PolymorphicAllocator {
-    using LockT = std::lock_guard<std::mutex>;
+    using LockT = std::lock_guard<Mutex>;
     
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
@@ -122,7 +123,7 @@ class StackAllocator final : public PolymorphicAllocator {
     }
 
     alignas(64) std::array<std::uint8_t, N> memory_;
-    mutable std::mutex mutex_;
+    mutable Mutex mutex_;
     void *stack_pointer_ = begin();
 };
 

@@ -14,7 +14,11 @@ class ReportingAllocator : public PolymorphicAllocator {
 public:
     ReportingAllocator() : alloc_{ }, os_{ &std::cout } { }
 
-    ReportingAllocator(std::ostream &os) : os_{ &os } { }
+    ReportingAllocator(const ReportingAllocator &other) = delete;
+
+    explicit ReportingAllocator(std::ostream &os) : os_{ &os } { }
+
+    ReportingAllocator& operator=(const ReportingAllocator &other) = delete;
 
 private:
     MemoryBlock allocate_impl(const std::size_t size,
