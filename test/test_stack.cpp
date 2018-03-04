@@ -8,6 +8,8 @@
 #include <iostream>
 #include <vector>
 #include <mutex>
+#include <chrono>
+#include <utility>
 
 constexpr unsigned long long
 operator""_KiB(unsigned long long literal) noexcept {
@@ -34,11 +36,9 @@ using VectorT = std::vector<T, gregjm::PolymorphicAllocatorAdaptor<T>>;
 using StringT = std::basic_string<char, std::char_traits<char>,
                                   gregjm::PolymorphicAllocatorAdaptor<char>>;
 using AllocT = gregjm::FallbackAllocator<
-    gregjm::PoolAllocator<8_MiB, gregjm::GlobalAllocator<>>,
+    gregjm::StackAllocator<512_KiB>,
     gregjm::GlobalAllocator<>
 >;
-
-// using AllocT = gregjm::GlobalAllocator<std::mutex>;
 
 void double_alloc(gregjm::PolymorphicAllocator &alloc) {
     constexpr std::size_t SIZE = 1 << 20;
@@ -82,11 +82,7 @@ void string_alloc(gregjm::PolymorphicAllocator &alloc) {
     strings.shrink_to_fit();
 }
 
-int main() {
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(nullptr);
-    std::cout.tie(nullptr);
-
+void run_tests() {
     AllocT alloc{ };
 
     double_alloc(alloc);
@@ -96,4 +92,31 @@ int main() {
     string_alloc(alloc);
 
     alloc.deallocate_all();
+}
+
+void wait() {
+    char buffer;
+
+    while (std::cin >> buffer) { }
+}
+
+template <typename Rep = long double, typename Period = std::ratio<1>,
+          typename Function, typename ...Args>
+std::chrono::duration<Rep, Period> time(Function &&f, Args &&...args) {
+    const auto start = std::chrono::high_resolution_clock::now();
+    std::invoke(std::forward<Function>(f), std::forward<Args>(args)...);
+    const auto stop = std::chrono::high_resolution_clock::now();
+
+    return std::chrono::duration<Rep, Period>{ stop - start };
+}
+
+int main() {
+    std::ios_base::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+    std::cout.tie(nullptr);
+
+    const auto duration = time(run_tests);
+
+    std::cerr << "tests took " << duration.count() << " seconds\n";
+    wait();
 }

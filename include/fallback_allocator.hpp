@@ -48,7 +48,7 @@ private:
 
         try {
             block = primary().allocate(size, alignment);
-        } catch (const BadAllocationException &e) {
+        } catch (const BadAllocationException&) {
             // if this throws, we would just rethrow so no need to try-catch
             block = secondary().allocate(size, alignment);
         }
@@ -61,7 +61,7 @@ private:
         if (primary().owns(block)) {
             try {
                 return primary().reallocate(block, size, alignment);
-            } catch (const BadAllocationException &e) {
+            } catch (const BadAllocationException&) {
                 const MemoryBlock new_block = secondary().allocate(size,
                                                                    alignment);
 
@@ -74,7 +74,7 @@ private:
         } else if (secondary().owns(block)) {
             try {
                 return secondary().reallocate(block, size, alignment);
-            } catch (const BadAllocationException &e) {
+            } catch (const BadAllocationException&) {
                 const MemoryBlock new_block = primary().allocate(size,
                                                                  alignment);
 

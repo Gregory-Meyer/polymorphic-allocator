@@ -14,12 +14,14 @@ namespace gregjm {
 
 template <typename Mutex = DummyMutex>
 class GlobalAllocator final : public PolymorphicAllocator {
+    using LockT = std::scoped_lock<Mutex>;
+    using DoubleLockT = std::scoped_lock<Mutex, Mutex>;
 
 public:
     GlobalAllocator() = default;
 
     GlobalAllocator(GlobalAllocator &&other) : blocks_{ }, mutex_{ } {
-        const std::scoped_lock lock{ mutex_, other.mutex_ };
+        const DoubleLockT lock{ mutex_, other.mutex_ };
 
         blocks_ = std::move(other.blocks_);
     }
@@ -29,7 +31,7 @@ public:
             return *this;
         }
 
-        const std::scoped_lock lock{ mutex_, other.mutex_ };
+        const DoubleLockT lock{ mutex_, other.mutex_ };
 
         blocks_ = std::move(other.blocks_);
 
@@ -48,7 +50,7 @@ private:
         const MemoryBlock block{ memory, size, alignment };
 
         {
-            const std::scoped_lock lock{ mutex_ };
+            const LockT lock{ mutex_ };
             blocks_.insert(block);
         }
 
@@ -57,7 +59,7 @@ private:
 
     MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
                                 const std::size_t alignment) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         if (blocks_.count(block) == 0) {
             throw NotOwnedException{ };
@@ -77,13 +79,13 @@ private:
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         deallocate_locked(block);
     }
 
     void deallocate_all_impl() override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         while (not blocks_.empty()) {
             deallocate_locked(*blocks_.begin());
@@ -95,7 +97,7 @@ private:
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         return static_cast<bool>(blocks_.count(block));
     }

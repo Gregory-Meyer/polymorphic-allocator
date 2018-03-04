@@ -55,16 +55,20 @@ private:
 
 template <std::size_t PoolSize, typename Allocator, typename Mutex = DummyMutex>
 class PoolAllocator final : public PolymorphicAllocator {
+    using LockT = std::scoped_lock<Mutex>;
+    using DoubleLockT = std::scoped_lock<Mutex, Mutex>;
     using PoolT = StackAllocator<PoolSize>;
     using OwnerT = std::unique_ptr<PoolT,
                                    detail::PoolAllocatorDeleter<Allocator>>;
     using VectorT = std::vector<OwnerT, PolymorphicAllocatorAdaptor<OwnerT>>;
+    using IterMutT = typename VectorT::iterator;
+    using IterT = typename VectorT::const_iterator;
 
 public:
     PoolAllocator(const PoolAllocator &other) = delete;
 
     PoolAllocator(PoolAllocator &&other) : mutex_{ } {
-        const std::scoped_lock lock{ mutex_, other.mutex_ };
+        const DoubleLockT lock{ mutex_, other.mutex_ };
 
         alloc_ = std::move(other.alloc_);
         deleter_ = std::move(other.deleter_);
@@ -86,7 +90,7 @@ public:
             return *this;
         }
 
-        const std::scoped_lock lock{ mutex_, other.mutex_ };
+        const LockT lock{ mutex_, other.mutex_ };
 
         alloc_ = std::move(other.alloc_);
         deleter_ = std::move(other.deleter_);
@@ -102,7 +106,7 @@ private:
             throw BadAllocationException{ };
         }
 
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         if (pools_.empty()) {
             return allocate_new(size, alignment);
@@ -115,14 +119,14 @@ private:
             fix_down();
 
             return block;
-        } catch (const BadAllocationException &e) {
+        } catch (const BadAllocationException&) {
             return allocate_new(size, alignment);
         }
     }
 
     MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
                                 const std::size_t alignment) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
                                            [block](const OwnerT &owner) {
@@ -137,7 +141,7 @@ private:
 
         try {
             return owner->reallocate(block, size, alignment);
-        } catch (const BadAllocationException &e) {
+        } catch (const BadAllocationException&) {
             const MemoryBlock new_block = allocate(size, alignment);
 
             std::memcpy(new_block.memory, block.memory, block.size);
@@ -150,7 +154,7 @@ private:
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
                                            [block](const OwnerT &owner) {
@@ -166,7 +170,7 @@ private:
     }
 
     void deallocate_all_impl() override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         for (const auto &pool_ptr : pools_) {
             pool_ptr->deallocate_all();
@@ -178,7 +182,7 @@ private:
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         for (const auto &pool_ptr : pools_) {
             if (pool_ptr->owns(block)) {
@@ -202,25 +206,83 @@ private:
         const MemoryBlock allocated_block =
             pool->allocate(count, alignment);
 
-        pools_.emplace_back(pool, detail::PoolAllocatorDeleter{ alloc_ });
+        pools_.emplace_back(pool,
+                            detail::PoolAllocatorDeleter<Allocator>{ alloc_ });
         std::push_heap(pools_.begin(), pools_.end(),
                        detail::PoolAllocatorComparator{ });
 
         return allocated_block;
     }
 
+    bool has_left_child(const IterT element) const noexcept {
+        return 2 * (element - pools_.begin()) + 1 < pools_.size();
+    }
+
+    bool has_right_child(const IterT element) const noexcept {
+        return 2 * (element - pools_.begin()) + 2 < pools_.size();
+    }
+
+    IterMutT left_child(const IterMutT element) noexcept {
+        return element + (element - pools_.begin()) + 1;
+    }
+
+    IterT left_child(const IterT element) const noexcept {
+        return element + (element - pools_.begin()) + 1;
+    }
+
+    IterMutT right_child(const IterMutT element) noexcept {
+        return element + (element - pools_.begin()) + 2;
+    }
+
+    IterT right_child(const IterT element) const noexcept {
+        return element + (element - pools_.begin()) + 2;
+    }
+
+    IterMutT left_child_or(const IterMutT element) noexcept {
+        if (has_left_child(element)) {
+            return left_child(element);
+        }
+
+        return pools_.end();
+    }
+
+    IterT left_child_or(const IterT element) const noexcept {
+        if (has_left_child(element)) {
+            return left_child(element);
+        }
+
+        return pools_.cend();
+    }
+
+    IterMutT right_child_or(const IterMutT element) noexcept {
+        if (has_right_child(element)) {
+            return right_child(element);
+        }
+
+        return pools_.end();
+    }
+
+    IterT right_child_or(const IterT element) const noexcept {
+        if (has_right_child(element)) {
+            return right_child(element);
+        }
+
+        return pools_.cend();
+    }
+
     // update priority of front heap element
     // assumes we have a lock
-    void fix_down() {
+    // assumes nonempty
+    void fix_down() noexcept(std::is_nothrow_swappable_v<OwnerT>) {
         const std::size_t size = pools_.front()->max_size();
 
         for (auto current = pools_.begin(); current < pools_.end(); ) {
             using std::swap;
 
-            const auto left = current + (current - pools_.begin()) + 1;
-            const auto right = left + 1;
+            const auto left = left_child_or(current);
+            const auto right = right_child_or(current);
 
-            if (right < pools_.end()) { // right and left are valid nodes
+            if (right != pools_.end()) { // right and left are valid nodes
                 if ((*left)->max_size() < (*right)->max_size()) {
                     if (size >= (*right)->max_size()) {
                         break;
@@ -238,35 +300,65 @@ private:
 
                     current = left;
                 }
-            } else if (left < pools_.end()) {
-                if (size < (*left)->max_size()) {
-                    swap(*current, *left);
+            } else if (left != pools_.end()) {
+                if (size >= (*left)->max_size()) {
+                    break;
                 }
 
-                break;
+                swap(*current, *left);
+                current = left;
             } else {
                 break;
             }
         }
     }
 
+    bool has_parent(const IterT element) const noexcept {
+        return element - pools_.begin() > 0;
+    }
+
+    IterMutT parent(const IterMutT element) const noexcept {
+        return element - (element - pools_.begin() + 2) / 2;
+    }
+
+    IterT parent(const IterT element) const noexcept {
+        return element - (element - pools_.begin() + 2) / 2;
+    }
+
+    IterMutT parent_or(const IterMutT element) noexcept {
+        if (has_parent(element)) {
+            return parent(element);
+        }
+
+        return pools_.end();
+    }
+
+    IterT parent_or(const IterT element) const noexcept {
+        if (has_parent(element)) {
+            return parent(element);
+        }
+
+        return pools_.cend();
+    }
+
     // update priority of given heap element
     // assumes we have a lock
     // assumes current is dereferencable
-    void fix_up(typename VectorT::iterator current) {
-        const auto size = (*current)->max_size();
+    void fix_up(IterMutT element) noexcept(std::is_nothrow_swappable_v<OwnerT>) {
+        const auto size = (*element)->max_size();
 
-        for (; current >= pools_.begin(); ) {
-            const auto element_index = current - pools_.begin();
-            const auto parent = current - (element_index + 2) / 2;
+        for (; element > pools_.begin(); ) {
+            const auto parent = parent_or(element);
 
-            if (parent < pools_.begin()) {
+            if (parent == pools_.end()) {
                 return;
             }
 
             if ((*parent)->max_size() < size) {
-                swap(*current, *parent);
-                current = parent;
+                using std::swap;
+
+                swap(*element, *parent);
+                element = parent;
             } else {
                 return;
             }

@@ -72,47 +72,90 @@ class PolymorphicAllocatorAdaptor {
 public:
     using value_type = T;
 
+    template <typename U>
+    friend class PolymorphicAllocatorAdaptor;
+
+    template <typename U>
+    PolymorphicAllocatorAdaptor(
+        const PolymorphicAllocatorAdaptor<U> &other
+    ) noexcept : alloc_{ other.alloc_ } { }
+
+    template <typename U>
+    PolymorphicAllocatorAdaptor(
+        PolymorphicAllocatorAdaptor<U> &&other
+    ) noexcept : alloc_{ other.alloc_  } { }
+
     explicit PolymorphicAllocatorAdaptor(
         PolymorphicAllocator &alloc
     ) noexcept : alloc_{ &alloc } { }
 
-    T* allocate(const std::size_t count) {
+    template <typename U>
+    PolymorphicAllocatorAdaptor& operator=(
+        const PolymorphicAllocatorAdaptor<U> &other
+    ) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+
+        alloc_ = other.alloc_;
+
+        return *this;
+    }
+
+    template <typename U>
+    PolymorphicAllocatorAdaptor& operator=(
+        PolymorphicAllocatorAdaptor<U> &&other
+    ) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+
+        alloc_ = other.alloc_;
+
+        return *this;
+    }
+
+    inline T* allocate(const std::size_t count) {
         const MemoryBlock block = alloc_->allocate(sizeof(T) * count,
                                                        alignof(T));
 
         return reinterpret_cast<T*>(block.memory);
     }
 
-    void deallocate(T *const memory, const std::size_t count) {
+    inline void deallocate(T *const memory, const std::size_t count) {
         const MemoryBlock block{ reinterpret_cast<void*>(memory),
                                  sizeof(T) * count, alignof(T) };
 
         alloc_->deallocate(block);
     }
 
-    std::size_t max_size() const {
+    inline std::size_t max_size() const {
         return alloc_->max_size();
     }
 
-    PolymorphicAllocator& allocator() noexcept {
+    inline PolymorphicAllocator& allocator() noexcept {
         return *alloc_;
     }
 
-    const PolymorphicAllocator& allocator() const noexcept {
+    inline const PolymorphicAllocator& allocator() const noexcept {
         return *alloc_;
     }
 
-    void set_allocator(PolymorphicAllocator &allocator) noexcept {
+    inline void set_allocator(PolymorphicAllocator &allocator) noexcept {
         alloc_ = &allocator;
     }
 
-    friend bool operator==(const PolymorphicAllocatorAdaptor &lhs,
-                           const PolymorphicAllocatorAdaptor &rhs) noexcept {
+    friend inline bool operator==(
+        const PolymorphicAllocatorAdaptor &lhs,
+        const PolymorphicAllocatorAdaptor &rhs
+    ) noexcept {
         return lhs.alloc_ == rhs.alloc_;
     }
 
-    friend bool operator!=(const PolymorphicAllocatorAdaptor &lhs,
-                           const PolymorphicAllocatorAdaptor &rhs) noexcept {
+    friend inline bool operator!=(
+        const PolymorphicAllocatorAdaptor &lhs,
+        const PolymorphicAllocatorAdaptor &rhs
+    ) noexcept {
         return lhs.alloc_ != rhs.alloc_;
     }
 

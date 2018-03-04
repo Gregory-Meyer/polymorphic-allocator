@@ -16,16 +16,18 @@ namespace gregjm {
 
 template <std::size_t N, typename Mutex = DummyMutex>
 class StackAllocator final : public PolymorphicAllocator {
+    using LockT = std::scoped_lock<Mutex>;
+
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         return allocate_locked(size, alignment);
     }
 
     MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
                                 const std::size_t alignment) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         if (not owns_locked(block)) {
             throw NotOwnedException{ };
@@ -39,25 +41,25 @@ class StackAllocator final : public PolymorphicAllocator {
     }
 
     void deallocate_impl(const MemoryBlock block) override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         deallocate_locked(block);
     }
 
     void deallocate_all_impl() override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         stack_pointer_ = begin();
     }
 
     std::size_t max_size_impl() const override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         return max_size_locked();
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        const std::scoped_lock lock{ mutex_ };
+        const LockT lock{ mutex_ };
 
         return owns_locked(block);
     }
