@@ -4,6 +4,7 @@
 #include "global_allocator.hpp"
 #include "fallback_allocator.hpp"
 #include "pool_allocator.hpp"
+#include "segregating_allocator.hpp"
 
 #include <iostream>
 #include <vector>
@@ -35,13 +36,9 @@ template <typename T>
 using VectorT = std::vector<T, gregjm::PolymorphicAllocatorAdaptor<T>>;
 using StringT = std::basic_string<char, std::char_traits<char>,
                                   gregjm::PolymorphicAllocatorAdaptor<char>>;
-using AllocT = gregjm::FallbackAllocator<
-    gregjm::StackAllocator<512_KiB>,
-    gregjm::GlobalAllocator<>
->;
 
 void double_alloc(gregjm::PolymorphicAllocator &alloc) {
-    constexpr std::size_t SIZE = 1 << 20;
+    constexpr std::size_t SIZE = 1 << 15;
 
     VectorT<double> numbers{ gregjm::make_adaptor<double>(alloc) };
 
@@ -60,7 +57,7 @@ void double_alloc(gregjm::PolymorphicAllocator &alloc) {
 }
 
 void string_alloc(gregjm::PolymorphicAllocator &alloc) {
-    constexpr std::size_t SIZE = 1 << 20;
+    constexpr std::size_t SIZE = 1 << 15;
     constexpr char LONG_STRING[] = "this is a long string that won't fit";
     constexpr char SHORT_STRING[] = "short";
 
@@ -82,16 +79,63 @@ void string_alloc(gregjm::PolymorphicAllocator &alloc) {
     strings.shrink_to_fit();
 }
 
-void run_tests() {
-    AllocT alloc{ };
+void global_test() {
+    using AllocT = gregjm::GlobalAllocator<>;
+
+    AllocT alloc;
 
     double_alloc(alloc);
 
-    alloc.deallocate_all();
-
     string_alloc(alloc);
+}
 
-    alloc.deallocate_all();
+// this is really slow
+void stack_test() {
+    using AllocT = gregjm::FallbackAllocator<gregjm::StackAllocator<512_KiB>,
+                                             gregjm::GlobalAllocator<>>;
+
+    AllocT alloc;
+
+    double_alloc(alloc);
+    string_alloc(alloc);
+}
+
+void pool_test() {
+    using AllocT = gregjm::FallbackAllocator<
+        gregjm::PoolAllocator<8_MiB, gregjm::GlobalAllocator<>>,
+        gregjm::GlobalAllocator<>
+    >;
+
+    AllocT alloc;
+
+    double_alloc(alloc);
+    string_alloc(alloc);
+}
+
+void segregating_test() {
+    using AllocT = gregjm::SegregatingAllocator<
+        16, gregjm::StackAllocator<512_KiB>, gregjm::GlobalAllocator<>
+    >;
+
+    AllocT alloc;
+
+    double_alloc(alloc);
+    string_alloc(alloc);
+}
+
+void segregating_pool_test() {
+    using AllocT = gregjm::SegregatingAllocator<
+        16, gregjm::StackAllocator<512_KiB>,
+        gregjm::FallbackAllocator<
+            gregjm::PoolAllocator<8_MiB, gregjm::GlobalAllocator<>>,
+            gregjm::GlobalAllocator<>
+        >
+    >;
+
+    AllocT alloc;
+
+    double_alloc(alloc);
+    string_alloc(alloc);
 }
 
 void wait() {
@@ -110,13 +154,55 @@ std::chrono::duration<Rep, Period> time(Function &&f, Args &&...args) {
     return std::chrono::duration<Rep, Period>{ stop - start };
 }
 
+void run_global_tests(const std::size_t num_tests) {
+    long double global_duration = 0;
+
+    for (std::size_t i = 0; i < num_tests; ++i) {
+        global_duration += time(global_test).count();
+    }
+
+    std::cerr << "global tests took " << global_duration << " seconds\n";
+}
+
+void run_pool_tests(const std::size_t num_tests) {
+    long double pool_duration = 0;
+
+    for (std::size_t i = 0; i < num_tests; ++i) {
+        pool_duration += time(pool_test).count();
+    }
+
+    std::cerr << "pool tests took " << pool_duration << " seconds\n";
+}
+
+void run_segregating_tests(const std::size_t num_tests) {
+    long double segregating_duration = 0;
+
+    for (std::size_t i = 0; i < num_tests; ++i) {
+        segregating_duration += time(segregating_test).count();
+    }
+
+    std::cerr << "segregating tests took " << segregating_duration
+        << " seconds\n";
+}
+
+void run_segregating_pool_tests(const std::size_t num_tests) {
+    long double segregating_pool_duration = 0;
+
+    for (std::size_t i = 0; i < num_tests; ++i) {
+        segregating_pool_duration += time(segregating_pool_test).count();
+    }
+
+    std::cerr << "segregating pool tests took " << segregating_pool_duration
+        << " seconds\n";
+}
+
 int main() {
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(nullptr);
     std::cout.tie(nullptr);
+    
+    constexpr std::size_t NUM_TESTS = 128;
 
-    const auto duration = time(run_tests);
-
-    std::cerr << "tests took " << duration.count() << " seconds\n";
+    run_global_tests(NUM_TESTS);
     wait();
 }

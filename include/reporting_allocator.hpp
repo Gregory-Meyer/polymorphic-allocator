@@ -20,6 +20,8 @@ public:
 
     ReportingAllocator& operator=(const ReportingAllocator &other) = delete;
 
+    virtual ~ReportingAllocator() = default;
+
 private:
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {

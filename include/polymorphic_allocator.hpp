@@ -10,19 +10,52 @@ namespace gregjm {
 struct MemoryBlock {
     void *memory;
     std::size_t size;
-    std::size_t alignment;
 };
 
-bool operator==(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+inline bool operator==(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
     return (lhs.memory == rhs.memory) and (lhs.size == rhs.size);
 }
 
-bool operator!=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+inline bool operator!=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
     return (lhs.memory != rhs.memory) or (lhs.size != rhs.size);
+}
+
+inline bool operator<(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+    if (lhs.memory == rhs.memory) {
+        return lhs.size < rhs.size;  
+    }
+
+    return lhs.memory < rhs.memory;
+}
+
+inline bool operator<=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+    if (lhs.memory == rhs.memory) {
+        return lhs.size <= rhs.size;
+    }
+
+    return lhs.memory < rhs.memory;
+}
+
+inline bool operator>(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+    if (lhs.memory == rhs.memory) {
+        return lhs.size > rhs.size;  
+    }
+
+    return lhs.memory > rhs.memory;
+}
+
+inline bool operator>=(const MemoryBlock lhs, const MemoryBlock rhs) noexcept {
+    if (lhs.memory == rhs.memory) {
+        return lhs.size >= rhs.size;
+    }
+
+    return lhs.memory > rhs.memory;
 }
 
 class PolymorphicAllocator {
 public:
+    virtual ~PolymorphicAllocator() = default;
+
     inline MemoryBlock allocate(const std::size_t size,
                                 const std::size_t alignment) {
         return allocate_impl(size, alignment);
@@ -49,7 +82,6 @@ public:
     inline bool owns(const MemoryBlock block) const {
         return owns_impl(block);
     }
-
 
 private:
     virtual MemoryBlock allocate_impl(std::size_t size,
@@ -117,14 +149,14 @@ public:
 
     inline T* allocate(const std::size_t count) {
         const MemoryBlock block = alloc_->allocate(sizeof(T) * count,
-                                                       alignof(T));
+                                                   alignof(T));
 
         return reinterpret_cast<T*>(block.memory);
     }
 
     inline void deallocate(T *const memory, const std::size_t count) {
         const MemoryBlock block{ reinterpret_cast<void*>(memory),
-                                 sizeof(T) * count, alignof(T) };
+                                 sizeof(T) * count };
 
         alloc_->deallocate(block);
     }
@@ -198,14 +230,15 @@ namespace std {
 template <>
 struct hash<gregjm::MemoryBlock> {
     std::size_t operator()(const gregjm::MemoryBlock block) const noexcept {
-        const std::hash<void*> pointer_hasher;
         const std::size_t hash = pointer_hasher(block.memory);
 
         // from boost::hash_combine
-        const std::hash<std::size_t> size_hasher;
         return hash ^ (size_hasher(block.size) + 0x9e3779b9 + (hash << 6)
                        + (hash >> 2));
     }
+
+    const std::hash<void*> pointer_hasher;
+    const std::hash<std::size_t> size_hasher;
 };
 
 } // namespace std

@@ -8,6 +8,7 @@
 #include <cstdint> // std::uint8_t
 #include <cstring> // std::memcpy
 #include <array> // std::array
+#include <algorithm> // std::min
 #include <mutex> // std::scoped_lock
 
 #include <iostream>
@@ -16,12 +17,17 @@ namespace gregjm {
 
 template <std::size_t N, typename Mutex = DummyMutex>
 class StackAllocator final : public PolymorphicAllocator {
+public:
+    virtual ~StackAllocator() = default;
+
+private:
     using LockT = std::scoped_lock<Mutex>;
 
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
         const LockT lock{ mutex_ };
 
+        ++allocated_;
         return allocate_locked(size, alignment);
     }
 
@@ -33,8 +39,22 @@ class StackAllocator final : public PolymorphicAllocator {
             throw NotOwnedException{ };
         }
 
+        if (reinterpret_cast<std::uint8_t*>(block.memory) + block.size
+            == stack_pointer_) {
+            const MemoryBlock realloc_block{ block.memory, size };
+
+            if (size < block.size) {
+                pop(block.size - size);
+            } else {
+                push(size - block.size);
+            }
+
+            return realloc_block;
+        }
+
+        const auto min_size = std::min(size, block.size);
         const MemoryBlock realloc_block = allocate_locked(size, alignment);
-        std::memcpy(realloc_block.memory, block.memory, block.size);
+        std::memcpy(realloc_block.memory, block.memory, min_size);
         deallocate_locked(block);
 
         return realloc_block;
@@ -118,7 +138,7 @@ class StackAllocator final : public PolymorphicAllocator {
         }
 
         align_top(alignment);
-        const MemoryBlock block{ stack_pointer_, size, alignment };
+        const MemoryBlock block{ stack_pointer_, size };
         push(size);
 
         return block;
@@ -135,6 +155,12 @@ class StackAllocator final : public PolymorphicAllocator {
         if (reinterpret_cast<const void*>(memory) == stack_pointer_) {
             pop(block.size);
         }
+
+        --allocated_;
+
+        if (allocated_ == 0) {
+            stack_pointer_ = begin();
+        }
     }
 
     std::size_t max_size_locked() const {
@@ -149,6 +175,7 @@ class StackAllocator final : public PolymorphicAllocator {
     alignas(64) std::array<std::uint8_t, N> memory_;
     mutable Mutex mutex_;
     void *stack_pointer_ = begin();
+    std::size_t allocated_ = 0;
 };
 
 } // namespace gregjm

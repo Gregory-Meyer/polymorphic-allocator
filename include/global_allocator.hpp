@@ -38,16 +38,19 @@ public:
         return *this;
     }
 
+    virtual ~GlobalAllocator() {
+        deallocate_all_impl();
+    }
+
 private:
-    MemoryBlock allocate_impl(const std::size_t size,
-                              const std::size_t alignment) override {
+    MemoryBlock allocate_impl(const std::size_t size, std::size_t) override {
         void *const memory = std::malloc(size);
 
         if (memory == nullptr) {
             throw BadAllocationException{ };
         }
 
-        const MemoryBlock block{ memory, size, alignment };
+        const MemoryBlock block{ memory, size };
 
         {
             const LockT lock{ mutex_ };
@@ -58,7 +61,7 @@ private:
     }
 
     MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
-                                const std::size_t alignment) override {
+                                std::size_t) override {
         const LockT lock{ mutex_ };
 
         if (blocks_.count(block) == 0) {
@@ -71,7 +74,7 @@ private:
             throw BadAllocationException{ };
         }
 
-        const MemoryBlock realloc_block{ realloc_memory, size, alignment };
+        const MemoryBlock realloc_block{ realloc_memory, size };
         blocks_.erase(block);
         blocks_.insert(realloc_block);
 

@@ -6,7 +6,7 @@
                                      // gregjm::BadAllocationException
 
 #include <cstring> // std::memcpy
-#include <algorithm> // std::max
+#include <algorithm> // std::max, std::min
 #include <type_traits> // std::is_nothrow_constructible_v,
                        // std::is_constructible_v, std::enable_if_t
 #include <utility> // std::move, std::pair, std::piecewise_construct
@@ -41,23 +41,23 @@ public:
 
     FallbackAllocator& operator=(const FallbackAllocator &other) = delete;
 
+    virtual ~FallbackAllocator() = default;
+
 private:
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
-        MemoryBlock block;
-
         try {
-            block = primary().allocate(size, alignment);
+            return primary().allocate(size, alignment);
         } catch (const BadAllocationException&) {
             // if this throws, we would just rethrow so no need to try-catch
-            block = secondary().allocate(size, alignment);
+            return secondary().allocate(size, alignment);
         }
-
-        return block;
     }
 
     MemoryBlock reallocate_impl(const MemoryBlock block, const std::size_t size,
                                 const std::size_t alignment) override {
+        const auto min_size = std::min(block.size, size);
+
         if (primary().owns(block)) {
             try {
                 return primary().reallocate(block, size, alignment);
@@ -65,37 +65,31 @@ private:
                 const MemoryBlock new_block = secondary().allocate(size,
                                                                    alignment);
 
-                std::memcpy(new_block.memory, block.memory, block.size);
+                std::memcpy(new_block.memory, block.memory, min_size);
 
                 primary().deallocate(block);
 
                 return new_block;
             }
-        } else if (secondary().owns(block)) {
-            try {
-                return secondary().reallocate(block, size, alignment);
-            } catch (const BadAllocationException&) {
-                const MemoryBlock new_block = primary().allocate(size,
-                                                                 alignment);
+        }
 
-                std::memcpy(new_block.memory, block.memory, block.size);
+        try {
+            return secondary().reallocate(block, size, alignment);
+        } catch (const BadAllocationException&) {
+            const MemoryBlock new_block = primary().allocate(size, alignment);
+            std::memcpy(new_block.memory, block.memory, min_size);
 
-                secondary().deallocate(block);
+            secondary().deallocate(block);
 
-                return new_block;
-            }
-        } else {
-            throw NotOwnedException{ };
+            return new_block;
         }
     }
 
     void deallocate_impl(const MemoryBlock block) override {
         if (primary().owns(block)) {
             primary().deallocate(block);
-        } else if (secondary().owns(block)) {
-            secondary().deallocate(block);
         } else {
-            throw NotOwnedException{ };
+            secondary().deallocate(block);
         }
     }
 

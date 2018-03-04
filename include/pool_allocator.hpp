@@ -41,8 +41,7 @@ public:
     void operator()(StackAllocator<N> *const pool) {
         pool->~StackAllocator<N>();
 
-        const MemoryBlock block{ pool, sizeof(StackAllocator<N>),
-                                 alignof(StackAllocator<N>) };
+        const MemoryBlock block{ pool, sizeof(StackAllocator<N>) };
 
         alloc_->deallocate(block);
     }
@@ -99,6 +98,8 @@ public:
         return *this;
     }
 
+    virtual ~PoolAllocator() = default;
+
 private:
     MemoryBlock allocate_impl(const std::size_t size,
                               const std::size_t alignment) override {
@@ -128,26 +129,23 @@ private:
                                 const std::size_t alignment) override {
         const LockT lock{ mutex_ };
 
-        const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
-                                           [block](const OwnerT &owner) {
-                                               return owner->owns(block);
-                                           });
+        const auto owner_iter = get_owner_iter(block);
 
-        if (owner_it == pools_.end()) {
+        if (owner_iter == pools_.end()) {
             throw NotOwnedException{ };
         }
 
-        const auto owner = (*owner_it).get();
+        auto &owner = **owner_iter;
 
         try {
-            return owner->reallocate(block, size, alignment);
+            return owner.reallocate(block, size, alignment);
         } catch (const BadAllocationException&) {
             const MemoryBlock new_block = allocate(size, alignment);
 
             std::memcpy(new_block.memory, block.memory, block.size);
 
-            owner->deallocate(block);
-            fix_up(owner_it);
+            owner.deallocate(block);
+            fix_up(owner_iter);
 
             return new_block;
         }
@@ -156,17 +154,16 @@ private:
     void deallocate_impl(const MemoryBlock block) override {
         const LockT lock{ mutex_ };
 
-        const auto owner_it = std::find_if(pools_.begin(), pools_.end(),
-                                           [block](const OwnerT &owner) {
-                                               return owner->owns(block);
-                                           });
+        const auto owner_iter = get_owner_iter(block);
 
-        if (owner_it == pools_.end()) {
+        if (owner_iter == pools_.end()) {
             throw NotOwnedException{ };
         }
+
+        auto &owner = **owner_iter;
         
-        (*owner_it)->deallocate(block);
-        fix_up(owner_it);
+        owner.deallocate(block);
+        fix_up(owner_iter);
     }
 
     void deallocate_all_impl() override {
@@ -214,12 +211,23 @@ private:
         return allocated_block;
     }
 
+    IterMutT get_owner_iter(const MemoryBlock block) {
+        return std::find_if(pools_.begin(), pools_.end(),
+                            [block](const OwnerT &owner) {
+                                return owner->owns(block);
+                            });
+    }
+
     bool has_left_child(const IterT element) const noexcept {
-        return 2 * (element - pools_.begin()) + 1 < pools_.size();
+        const std::ptrdiff_t signed_size = pools_.size();
+
+        return 2 * (element - pools_.begin()) + 1 < signed_size;
     }
 
     bool has_right_child(const IterT element) const noexcept {
-        return 2 * (element - pools_.begin()) + 2 < pools_.size();
+        const std::ptrdiff_t signed_size = pools_.size();
+
+        return 2 * (element - pools_.begin()) + 2 < signed_size;
     }
 
     IterMutT left_child(const IterMutT element) noexcept {
