@@ -27,7 +27,6 @@ private:
                               const std::size_t alignment) override {
         const LockT lock{ mutex_ };
 
-        ++allocated_;
         return allocate_locked(size, alignment);
     }
 
@@ -108,16 +107,28 @@ private:
         return end();
     }
 
+    std::size_t aligned_offset(const std::size_t size, const std::size_t alignment) {
+        const auto modulo = size % alignment;
+
+        if (modulo == 0) {
+            return 0;
+        }
+
+        return alignment - modulo;
+    }
+
     // assumes resources are locked 
     void align_top(const std::size_t alignment) {
         auto sp = reinterpret_cast<std::uintptr_t>(stack_pointer_);
-        sp += alignment - (sp % alignment);
+        max_size_ -= aligned_offset(static_cast<std::size_t>(sp), alignment);
+        sp += aligned_offset(static_cast<std::size_t>(sp), alignment);
         stack_pointer_ = reinterpret_cast<void*>(sp);
     }
 
     // assumes resources are locked
     void push(const std::size_t size) {
         auto sp = reinterpret_cast<std::uint8_t*>(stack_pointer_);
+        max_size_ -= size;
         sp += size;
 
         stack_pointer_ = sp;
@@ -126,6 +137,7 @@ private:
     // assumes resources are locked
     void pop(const std::size_t size) {
         auto sp = reinterpret_cast<std::uint8_t*>(stack_pointer_);
+        max_size_ += size;
         sp -= size;
 
         stack_pointer_ = sp;
@@ -133,13 +145,15 @@ private:
 
     MemoryBlock allocate_locked(const std::size_t size,
                                 const std::size_t alignment) {
-        if (size + alignment - (size % alignment) > max_size_locked()) {
+        if (size + aligned_offset(size, alignment) > max_size_locked()) {
             throw BadAllocationException{ };
         }
 
         align_top(alignment);
         const MemoryBlock block{ stack_pointer_, size };
         push(size);
+
+        ++allocated_;
 
         return block;
     }
@@ -160,22 +174,24 @@ private:
 
         if (allocated_ == 0) {
             stack_pointer_ = begin();
+            max_size_ = N;
         }
     }
 
     std::size_t max_size_locked() const {
-        return reinterpret_cast<const uint8_t*>(end())
-               - reinterpret_cast<const std::uint8_t*>(stack_pointer_);
+        return max_size_;
     }
 
     bool owns_locked(const MemoryBlock block) const {
         return block.memory >= begin() and block.memory < stack_pointer_;
     }
 
+
     alignas(64) std::array<std::uint8_t, N> memory_;
     mutable Mutex mutex_;
     void *stack_pointer_ = begin();
     std::size_t allocated_ = 0;
+    std::size_t max_size_ = N;
 };
 
 } // namespace gregjm

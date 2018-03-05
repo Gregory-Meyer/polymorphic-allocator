@@ -54,7 +54,7 @@ private:
 
         {
             const LockT lock{ mutex_ };
-            blocks_.insert(block);
+            //blocks_.insert(block);
         }
 
         return block;
@@ -64,9 +64,9 @@ private:
                                 std::size_t) override {
         const LockT lock{ mutex_ };
 
-        if (blocks_.count(block) == 0) {
-            throw NotOwnedException{ };
-        }
+        //if (blocks_.count(block) == 0) {
+         //   throw NotOwnedException{ };
+        //}
 
         void *const realloc_memory = std::realloc(block.memory, size);
 
@@ -75,8 +75,8 @@ private:
         }
 
         const MemoryBlock realloc_block{ realloc_memory, size };
-        blocks_.erase(block);
-        blocks_.insert(realloc_block);
+        //blocks_.erase(block);
+        //blocks_.insert(realloc_block);
 
         return block;
     }
@@ -90,9 +90,9 @@ private:
     void deallocate_all_impl() override {
         const LockT lock{ mutex_ };
 
-        while (not blocks_.empty()) {
-            deallocate_locked(*blocks_.begin());
-        }
+        //while (not blocks_.empty()) {
+         //   deallocate_locked(*blocks_.begin());
+        //}
     }
 
     std::size_t max_size_impl() const override {
@@ -100,20 +100,21 @@ private:
     }
 
     bool owns_impl(const MemoryBlock block) const override {
-        const LockT lock{ mutex_ };
+        // const LockT lock{ mutex_ };
 
-        return static_cast<bool>(blocks_.count(block));
+        // return static_cast<bool>(blocks_.count(block));
+        return true;
     }
 
     void deallocate_locked(const MemoryBlock block) {
-        if (blocks_.erase(block) == 0) {
-            throw NotOwnedException{ };
-        }
+        //if (blocks_.erase(block) == 0) {
+         //   throw NotOwnedException{ };
+        //}
 
         std::free(block.memory);
     }
 
-    std::unordered_set<MemoryBlock> blocks_;
+    //std::unordered_set<MemoryBlock> blocks_;
     mutable Mutex mutex_;
 };
 
