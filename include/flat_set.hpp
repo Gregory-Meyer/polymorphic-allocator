@@ -260,6 +260,7 @@ public:
         using std::swap;
 
         swap(data_, other.data_);
+        swap(comparator_, other.comparator_);
     }
 
     size_type count(const value_type &value) const
