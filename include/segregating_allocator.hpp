@@ -23,7 +23,7 @@ public:
     SegregatingAllocator(Little little, Big big)
         noexcept(
             std::is_nothrow_constructible_v<PairT, Little&&, Big&&>
-        ) : allocs_{ std::move(primary), std::move(secondary) }
+        ) : allocs_{ std::move(little), std::move(big) }
     { }
 
     template <typename ...LittleArgs, typename ...BigArgs,

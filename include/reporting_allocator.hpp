@@ -28,8 +28,7 @@ private:
         const MemoryBlock block = alloc_.allocate(size, alignment);
 
         *os_ << "allocator " << &alloc_ << " allocated a block at "
-            << block.memory << " with size " << block.size << " and alignment "
-            << block.alignment << '\n';
+            << block.memory << " with size " << block.size << '\n';
 
         return block;
     }
@@ -39,10 +38,9 @@ private:
         const MemoryBlock realloc_block = alloc_.reallocate(size, alignment);
 
         *os_ << "allocator " << &alloc_ << " reallocated a block at "
-            << block.memory << " with size " << block.size << " and alignment "
-            << block.alignment << " to a block at " << realloc_block.memory
-            << " with size " << realloc_block.size << " and alignment "
-            << realloc_block.alignment << '\n';
+            << block.memory << " with size " << block.size
+            << " to a block at " << realloc_block.memory << " with size "
+            << realloc_block.size << '\n';
 
         return realloc_block;
     }
@@ -51,8 +49,7 @@ private:
         alloc_.deallocate(block);
 
         *os_ << "allocator " << &alloc_ << " deallocated a block at "
-            << block.memory << " with size " << block.size
-            << " and alignment " << block.alignment << '\n';
+            << block.memory << " with size " << block.size << '\n';
     }
 
     void deallocate_all_impl() override {

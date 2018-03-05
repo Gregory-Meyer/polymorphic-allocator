@@ -138,6 +138,7 @@
   <ItemGroup>
     <ClInclude Include="..\include\dummy_mutex.hpp" />
     <ClInclude Include="..\include\fallback_allocator.hpp" />
+    <ClInclude Include="..\include\flat_set.hpp" />
     <ClInclude Include="..\include\global_allocator.hpp" />
     <ClInclude Include="..\include\polymorphic_allocator.hpp" />
     <ClInclude Include="..\include\pool_allocator.hpp" />

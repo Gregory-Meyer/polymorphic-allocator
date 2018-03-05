@@ -3,12 +3,12 @@
 
 #include "polymorphic_allocator.hpp" // gregjm::PolymorphicAllocator,
                                      // gregjm::MemoryBlock
-#include "dummy_mutex.hpp"
+#include "dummy_mutex.hpp" // gregjm::DummyMutex
+#include "flat_set.hpp" // gregjm::FlatSet
 
 #include <climits> // SIZE_MAX
 #include <cstdlib> // std::malloc, std::free
 #include <mutex> // std::scoped_lock
-#include <unordered_set> // std::unordered_set
 
 namespace gregjm {
 
@@ -113,7 +113,7 @@ private:
         std::free(block.memory);
     }
 
-    std::unordered_set<MemoryBlock> blocks_;
+    FlatSet<MemoryBlock> blocks_;
     mutable Mutex mutex_;
 };
 
