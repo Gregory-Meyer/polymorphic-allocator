@@ -15,23 +15,6 @@
 #include <vector> // std::vector
 
 namespace gregjm {
-// namespace detail {
-
-// template <typename ...Types>
-// using void_t = void;
-
-// template <typename T, typename = void>
-// struct HasIsTransparent : std::false_type { };
-
-// template <typename T>
-// struct HasIsTransparent<T, void_t<typename T::is_transparent>>
-//     : std::true_type
-// { };
-
-// template <typename T>
-// inline constexpr bool has_is_transparent_v = HasIsTransparent<T>::value;
-
-// } // namespace detail
 
 template <typename Key, typename Compare = std::less<Key>,
           typename Allocator = std::allocator<Key>>
@@ -39,12 +22,9 @@ class FlatSet {
     using VectorT = std::vector<Key, Allocator>;
     using TraitsT = std::allocator_traits<Allocator>;
 
-    template <typename U = Key>
     static inline constexpr bool IS_NOTHROW_COMPARABLE =
-        noexcept(std::declval<Compare>()(std::declval<const U&>(),
-                                         std::declval<const Key&>())
-                 and std::declval<Compare>()(std::declval<const Key&>(),
-                                             std::declval<const U&>()));
+        noexcept(std::declval<Compare>()(std::declval<const Key&>(),
+                                         std::declval<const Key&>()));
 
 public:
     using key_type = Key;
@@ -73,10 +53,7 @@ public:
     explicit FlatSet(const Allocator &allocator) : data_{ allocator },
                                                    comparator_{ } { }
 
-    template <typename Iter,
-              typename = std::enable_if_t<std::is_convertible_v<
-                  typename std::iterator_traits<Iter>::reference, value_type>
-              >>
+    template <typename Iter>
     FlatSet(const Iter first, const Iter last, const Compare &comparator,
             const Allocator &allocator = Allocator{ })
         : data_{ first, last, allocator }, comparator_{ comparator }
@@ -84,10 +61,7 @@ public:
         sort();
     }
 
-    template <typename Iter,
-              typename = std::enable_if_t<std::is_convertible_v<
-                  typename std::iterator_traits<Iter>::reference, value_type>
-              >>
+    template <typename Iter>
     FlatSet(const Iter first, const Iter last, const Allocator &allocator)
         : FlatSet{ first, last, Compare{ }, allocator }
     { }
@@ -226,10 +200,7 @@ public:
         return insert(value).first;
     }
 
-    template <typename Iter,
-              typename = std::enable_if_t<std::is_convertible_v<
-                  typename std::iterator_traits<Iter>::reference, value_type>
-              >>
+    template <typename Iter>
     void insert(Iter first, const Iter last) {
         for (; first != last; ++first) {
             insert(*first);
@@ -240,9 +211,7 @@ public:
         insert(ilist.begin(), ilist.end());
     }
 
-    template <typename ...Args,
-              typename = std::enable_if_t<std::is_constructible_v<Key,
-                                                                  Args...>>>
+    template <typename ...Args>
     std::pair<iterator, bool> emplace(Args &&...args) {
         data_.emplace_back(std::forward<Args>(args)...);
         const auto &emplaced = data_.back();
@@ -262,9 +231,7 @@ public:
         return std::pair<iterator, bool>{ found, true };
     }
 
-    template <typename ...Args,
-              typename = std::enable_if_t<std::is_constructible_v<Key,
-                                                                  Args...>>>
+    template <typename ...Args>
     std::pair<iterator, bool> emplace_hint(const_iterator, Args &&...args) {
         return emplace(std::forward<Args>(args)...);
     }
@@ -296,7 +263,7 @@ public:
     }
 
     size_type count(const value_type &value) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         if (lower_bound(value) == end()) {
             return 0;
@@ -305,130 +272,52 @@ public:
         return 1;
     }
 
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // size_type count(const K &x) const noexcept(IS_NOTHROW_COMPARABLE<K>) {
-    //     if (lower_bound(x) == end()) {
-    //         return 0;
-    //     }
-
-    //     return 1;
-    // }
-
-    iterator find(const value_type &value) noexcept(IS_NOTHROW_COMPARABLE<>) {
+    iterator find(const value_type &value) noexcept(IS_NOTHROW_COMPARABLE) {
         return lower_bound(value);
     }
 
     const_iterator find(const value_type &value) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lower_bound(value);
     }
 
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // iterator find(const K &x) noexcept(IS_NOTHROW_COMPARABLE<K>) {
-    //     return lower_bound(x);
-    // }
-
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // const_iterator find(const K &x) const noexcept(IS_NOTHROW_COMPARABLE<K>) {
-    //     return lower_bound(x);
-    // }
-
     std::pair<iterator, iterator> equal_range(const value_type &value)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::equal_range(begin(), end(), value, comparator_);
     }
 
     std::pair<const_iterator, const_iterator>
     equal_range(const value_type &value) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::equal_range(cbegin(), cend(), value, comparator_);
     }
 
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // std::pair<iterator, iterator> equal_range(const K &x)
-    //     noexcept(IS_NOTHROW_COMPARABLE<K>)
-    // {
-    //     return std::equal_range(begin(), end(), x, comparator_);
-    // }
-
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // std::pair<const_iterator, const_iterator>
-    // equal_range(const K &x) const noexcept(IS_NOTHROW_COMPARABLE<K>) {
-    //     return std::equal_range(cbegin(), cend(), x, comparator_);
-    // }
-
     iterator lower_bound(const value_type &value)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::lower_bound(begin(), end(), value, comparator_);
     }
 
     const_iterator lower_bound(const value_type &value) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::lower_bound(cbegin(), cend(), value, comparator_);
     }
 
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // iterator lower_bound(const K &x)
-    //     noexcept(IS_NOTHROW_COMPARABLE<K>)
-    // {
-    //     return std::lower_bound(begin(), end(), x, comparator_);
-    // }
-
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // const_iterator lower_bound(const K &x) const
-    //     noexcept(IS_NOTHROW_COMPARABLE<>)
-    // {
-    //     return std::lower_bound(cbegin(), cend(), x, comparator_);
-    // }
-
     iterator upper_bound(const value_type &value)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::upper_bound(begin(), end(), value, comparator_);
     }
 
     const_iterator upper_bound(const value_type &value) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return std::upper_bound(cbegin(), cend(), value, comparator_);
     }
-
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // iterator upper_bound(const K &x)
-    //     noexcept(IS_NOTHROW_COMPARABLE<K>)
-    // {
-    //     return std::upper_bound(begin(), end(), x, comparator_);
-    // }
-
-    // template <typename K,
-    //           typename =
-    //               std::enable_if_t<detail::has_is_transparent_v<Compare>>>
-    // const_iterator upper_bound(const K &x) const
-    //     noexcept(IS_NOTHROW_COMPARABLE<>)
-    // {
-    //     return std::upper_bound(cbegin(), cend(), x, comparator_);
-    // }
 
     key_compare key_comp() const
         noexcept(std::is_nothrow_copy_constructible_v<key_compare>)
@@ -443,79 +332,79 @@ public:
     }
 
     friend inline bool operator==(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ == rhs.data_;
     }
 
     friend inline bool operator!=(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ != rhs.data_;
     }
 
     friend inline bool operator<(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ < rhs.data_;
     }
 
     friend inline bool operator<=(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ <= rhs.data_;
     }
 
     friend inline bool operator>(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ > rhs.data_;
     }
 
     friend inline bool operator>=(const FlatSet &lhs, const FlatSet &rhs)
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return lhs.data_ >= rhs.data_;
     }
 
 private:
     inline bool eq(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return not comparator_(lhs, rhs) and not comparator_(rhs, lhs);
     }
 
     inline bool ne(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return comparator_(lhs, rhs) or comparator_(rhs, lhs);
     }
 
     inline bool lt(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return comparator_(lhs, rhs);
     }
 
     inline bool le(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return not comparator_(rhs, lhs);
     }
 
     inline bool gt(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return comparator_(rhs, lhs);
     }
 
     inline bool ge(const value_type &lhs, const value_type &rhs) const
-        noexcept(IS_NOTHROW_COMPARABLE<>)
+        noexcept(IS_NOTHROW_COMPARABLE)
     {
         return not comparator_(lhs, rhs);
     }
 
-    void sort() noexcept(IS_NOTHROW_COMPARABLE<>) {
+    void sort() noexcept(IS_NOTHROW_COMPARABLE) {
         std::sort(begin(), end(), comparator_);
     }
 
