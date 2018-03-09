@@ -39,6 +39,9 @@
     <ClInclude Include="..\include\segregating_allocator.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\fibonacci_heap.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\test\test_stack.cpp">
