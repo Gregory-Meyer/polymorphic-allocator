@@ -87,6 +87,11 @@ class FibonacciHeap {
         std::is_nothrow_move_assignable_v<RebindAllocT>
         and std::is_nothrow_move_assignable_v<Compare>;
 
+    static inline constexpr bool IS_NOTHROW_DEFAULT_CONSTRUCTIBLE =
+        std::is_nothrow_default_constructible_v<RebindAllocT>
+        and std::is_nothrow_default_constructible_v<OwnerT>
+        and std::is_nothrow_default_constructible_v<Compare>;
+
     template <typename Iterator>
     struct IsValidIterator {
         static inline constexpr bool value = std::is_convertible_v<
@@ -95,6 +100,8 @@ class FibonacciHeap {
     };
 
 public:
+    class Iterator;
+
     using value_compare = Compare;
     using value_type = T;
     using allocator_type = Allocator;
@@ -104,12 +111,87 @@ public:
     using const_reference = const value_type&;
     using pointer = typename std::allocator_traits<Allocator>::pointer;
     using const_pointer =
-            typename std::allocator_traits<Allocator>::const_pointer;
+        typename std::allocator_traits<Allocator>::const_pointer;
+    using iterator = Iterator;
+    using const_iterator = Iterator;
+    using reverse_iterator = std::reverse_iterator<Iterator>;
+    using const_reverse_iterator = std::reverse_iterator<Iterator>;
+
+    class Iterator {
+    public:
+        friend FibonacciHeap;
+
+        using difference_type = FibonacciHeap::difference_type;
+        using value_type = FibonacciHeap::value_type;
+        using pointer = FibonacciHeap::const_pointer;
+        using reference = FibonacciHeap::const_reference;
+        using iterator_category = std::forward_iterator_tag;
+
+        constexpr Iterator() noexcept = default;
+
+        reference operator*() const {
+            assert(current_);
+
+            return current_->data;
+        }
+
+        pointer operator->() const noexcept {
+            assert(current_);
+
+            return pointer{ &current_->data };
+        }
+
+        Iterator& operator++() {
+            assert(current_);
+
+            if (current_->child) {
+                current_ = current_->child;
+            } else if (current_->right) {
+                if (current_->parent) {
+                    current_ = current_->parent;
+                } else {
+                    current_ = nullptr;
+                }
+            } else if (current_->parent) {
+                do {
+                    current_ = current_->parent;
+
+                    if (not current_) {
+                        return *this;
+                    }
+                } while (not current_->right);
+
+                current_ = current_->right.get();
+            } else {
+                current_ = nullptr;
+            }
+
+            return *this;
+        }
+
+        Iterator operator++(int) {
+            const auto copy = *this;
+            ++(*this);
+            return copy;
+        }
+
+        friend bool operator==(const Iterator lhs,
+                               const Iterator rhs) noexcept {
+            return lhs.current_ == rhs.current_;
+        }
+
+        friend bool operator!=(const Iterator lhs,
+                               const Iterator rhs) noexcept {
+            return lhs.current_ != rhs.current_;
+        }
+
+    private:
+        Iterator(const Node &current) noexcept : current_{ &current } { }
+
+        const Node *current_ = nullptr;
+    };
     
-    class iterator;
-    using const_iterator = iterator;
-    using reverse_iterator = std::reverse_iterator<iterator>;
-    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    FibonacciHeap() noexcept(IS_NOTHROW_DEFAULT_CONSTRUCTIBLE) = default;
 
     // FibonacciHeap& operator=(const FibonacciHeap &other);
 
@@ -173,7 +255,7 @@ public:
     }
 
     void pop() {
-        assert(false);
+        static_assert(false, "pop not implemented yet");
         assert(root_);
 
         OwnerT child = std::move(root_->child);
@@ -190,10 +272,10 @@ public:
 
     template <typename Function,
               typename = std::enable_if_t<
-                  std::is_invocable_v<Function, value_type&>
+                  std::is_invocable_v<Function, T&>
               >>
     void update(const iterator iter, Function &&f)
-    noexcept(std::is_nothrow_invocable_v<Function, value_type&>) {
+    noexcept(std::is_nothrow_invocable_v<Function, T&>) {
         std::invoke(std::forward<Function>(f), *iter);
         update_priority(iter);
     }
@@ -230,7 +312,9 @@ private:
         ++size_;
     }
 
-    void update_priority(const iterator iter) noexcept;
+    void update_priority(Node *const node) noexcept {
+        static_assert(false, "update_priority not implemented");
+    }
 
     inline NodeDeleter make_deleter() noexcept {
         return NodeDeleter{ alloc_ };
