@@ -6,37 +6,49 @@
 #include <memory> // std::allocator, std::allocator_traits
 #include <functional> // std::less, std::invoke
 #include <iterator> // std::reverse_iterator
-#include <type_traits> // std::is_nothrow_move_assignable_v
+#include <type_traits> // a lot, but mainly std::enable_if_t
 #include <initializer_list> // std::initializer_list
 #include <utility> // std::move, std::swap, std::forward
 
 namespace gregjm {
 
 template <typename T, typename Compare = std::less<T>,
-          typename Allocator = std::allocator<T>,
-          typename = std::enable_if_t<std::is_invocable_v<Compare, const T&,
-                                                          const T&>>,
-          typename = std::enable_if_t<std::is_convertible_v<
-              std::invoke_result_t<Compare, const T&, const T&>, bool
-          >>,
-          typename = std::enable_if_t<std::is_convertible_v<
-              typename std::allocator_traits<Allocator>::value_type, T
-          >>>
+          typename Allocator = std::allocator<T>>
 class FibonacciHeap {
+    static_assert(std::is_invocable_v<const Compare&, const T&, const T&>,
+                  "must be able to invoke Compare with const T&");
+    static_assert(
+        std::is_convertible_v<std::invoke_result_t<const Compare&, const T&,
+                                                   const T&>,
+                              bool>,
+        "return type of invoked Compare must be convertible to bool"
+    );
+    static_assert(
+        std::is_same_v<
+            T, typename std::allocator_traits<Allocator>::value_type
+        >, "Allocator value_type must be T"
+    );
+
+    struct Node;
+
     using SizeT = std::size_t;
     using TraitsT = std::allocator_traits<Allocator>;
     using RebindAllocT = typename TraitsT::template rebind_alloc<Node>;
     using RebindTraitsT = std::allocator_traits<RebindAllocT>;
 
-    class Node;
-
     struct NodeDeleter {
-        void operator*(Node *const node) {
+        NodeDeleter() = default;
+
+        NodeDeleter(RebindAllocT &allocator) noexcept : alloc{ &allocator } { }
+
+        void operator()(Node *const node) {
+            assert(alloc);
+
             RebindTraitsT::destroy(*alloc, node);
-            RebindTraitsT::deallocate(*alloc, node);
+            RebindTraitsT::deallocate(*alloc, node, 1);
         }
 
-        RebindAllocT *alloc;
+        RebindAllocT *alloc = nullptr;
     };
 
     using OwnerT = std::unique_ptr<Node, NodeDeleter>;
@@ -44,12 +56,12 @@ class FibonacciHeap {
     // node in the heap; owns leftmost child and right sibling
     struct Node {
         template <typename ...Args,
-                  typename = std::enable_if_t<std::is_constructible_v<T,
-                                                                      Args...>>
+                  typename = std::enable_if_t<
+                      std::is_constructible_v<T, Args...>
+                  >>
         Node(Args &&...args)
-            noexcept(std::is_nothrow_constructible_v<T, Args...>>)
-            : data{ std::forward<Args>(args)... }
-        { }
+        noexcept(std::is_nothrow_constructible_v<T, Args...>)
+        : data{ std::forward<Args>(args)... } { }
 
         T data;
         Node *parent = nullptr;
@@ -58,6 +70,28 @@ class FibonacciHeap {
         OwnerT right = nullptr;
         SizeT rank = 0;
         bool is_marked = false;
+    };
+
+    static inline constexpr bool IS_NOTHROW_COMPARABLE =
+        std::is_nothrow_invocable_v<const Compare&, const T&, const T&>;
+
+    static inline constexpr bool IS_NOTHROW_SWAPPABLE =
+        std::is_nothrow_swappable_v<RebindAllocT>
+        and std::is_nothrow_swappable_v<OwnerT>
+        and std::is_nothrow_swappable_v<Compare>;
+
+    static inline constexpr bool ALLOC_IS_NOTHROW_CONSTRUCTIBLE =
+        std::is_nothrow_constructible_v<Allocator, const RebindAllocT&>;
+
+    static inline constexpr bool IS_NOTHROW_MOVE_ASSIGNABLE =
+        std::is_nothrow_move_assignable_v<RebindAllocT>
+        and std::is_nothrow_move_assignable_v<Compare>;
+
+    template <typename Iterator>
+    struct IsValidIterator {
+        static inline constexpr bool value = std::is_convertible_v<
+            typename std::iterator_traits<Iterator>::value_type, T
+        >;
     };
 
 public:
@@ -77,28 +111,28 @@ public:
     using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    FibonacciHeap& operator=(const FibonacciHeap &other);
+    // FibonacciHeap& operator=(const FibonacciHeap &other);
 
-    FibonacciHeap& operator=(FibonacciHeap &&other)
-            noexcept(std::allocator_traits<RebindAllocT>::is_always_equal::value
-                     and std::is_nothrow_move_assignable_v<Compare>::value);
+    // FibonacciHeap& operator=(FibonacciHeap &&other)
+    // noexcept(IS_NOTHROW_MOVE_ASSIGNABLE);
 
-    FibonacciHeap& operator=(std::initializer_list<value_type> ilist);
+    // FibonacciHeap& operator=(std::initializer_list<value_type> ilist);
 
-    allocator_type get_allocator() const {
-        return alloc_;
+    allocator_type get_allocator() const
+    noexcept(ALLOC_IS_NOTHROW_CONSTRUCTIBLE) {
+        return allocator_type{ alloc_ };
     }
 
     reference top() {
         assert(root_);
 
-        return *root_;
+        return root_->data;
     }
 
     const_reference top() const {
         assert(root_);
 
-        return *root_;
+        return root_->data;
     }
 
     bool empty() const noexcept {
@@ -122,9 +156,7 @@ public:
     }
 
     template <typename Iterator,
-              typename = std::enable_if_t<std::is_convertible_v<
-                  typename std::iterator_traits<Iterator>, value_type
-              >>
+              typename = std::enable_if_t<IsValidIterator<Iterator>::value>>
     void insert(Iterator first, const Iterator last) {
         for (; first != last; ++first) {
             push(*first);
@@ -136,19 +168,18 @@ public:
     }
 
     template <typename ...Args>
-    void emplace(Args &&...args);
+    void emplace(Args &&...args) {
+        push_node(construct_node(std::forward<Args>(args)...));
+    }
 
     void pop() {
+        assert(false);
         assert(root_);
 
         OwnerT child = std::move(root_->child);
     }
 
-    void swap(FibonacciHeap &other)
-        noexcept(std::is_nothrow_swappable_v<RebindAllocT>
-                 and std::is_nothrow_swappable_v<OwnerT>
-                 and std::is_nothrow_swappable_v<Compare>)
-    {
+    void swap(FibonacciHeap &other) noexcept(IS_NOTHROW_SWAPPABLE) {
         using std::swap;
 
         swap(alloc_, other.alloc_);
@@ -158,9 +189,11 @@ public:
     }
 
     template <typename Function,
-              typename = std::enable_if_t<std::is_invocable_v<Function,
-                                                              value_type&>>>
-    void update(const iterator iter, Function &&f) {
+              typename = std::enable_if_t<
+                  std::is_invocable_v<Function, value_type&>
+              >>
+    void update(const iterator iter, Function &&f)
+    noexcept(std::is_nothrow_invocable_v<Function, value_type&>) {
         std::invoke(std::forward<Function>(f), *iter);
         update_priority(iter);
     }
@@ -168,32 +201,39 @@ public:
 private:
     void push_node(OwnerT node) {
         assert(node);
+        assert(not node->child);
+        assert(not node->left);
+        assert(not node->right);
+        assert(node->rank == 0);
 
-        if (empty) {
+        if (empty()) {
             root_ = std::move(node);
-
-            // TODO: rank
         } else if (lt(root_->data, node->data)) {
-            OwnerT old_child = std::move(root_->child);
-            node->right = std::move(old_child);
-            root_->child = std::move(node);
+            ++root_->rank;
 
-            // TODO: rank
+            if (root_->child) {
+                node->right = std::move(root_->child);
+                node->right->left = node.get();
+            }
+
+            root_->child = std::move(node);
+            root_->child->parent = root_.get();
         } else {
             OwnerT old_root = std::move(root_);
             root_ = std::move(node);
             root_->child = std::move(old_root);
+            root_->child->parent = root_.get();
 
-            // TODO: rank
+            root_->rank = root_->child->rank + 1;
         }
 
         ++size_;
     }
 
-    void update_priority(const iterator iter);
+    void update_priority(const iterator iter) noexcept;
 
-    NodeDeleter make_deleter() noexcept {
-        return NodeDeleter{ &alloc_ };
+    inline NodeDeleter make_deleter() noexcept {
+        return NodeDeleter{ alloc_ };
     }
 
     template <typename ...Args>
@@ -204,61 +244,48 @@ private:
         return OwnerT{ node, make_deleter() };
     }
 
-    bool eq(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
+    inline bool eq(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
         return not std::invoke(comparator_, lhs, rhs)
                and not std::invoke(comparator_, rhs, lhs);
     }
 
-    bool ne(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
+    inline bool ne(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
         return std::invoke(comparator_, lhs, rhs)
                or std::invoke(comparator_, rhs, lhs);
     }
 
-    bool lt(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
+    inline bool lt(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
         return std::invoke(comparator_, lhs, rhs);
     }
 
-    bool le(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
+    inline bool le(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
         return not std::invoke(comparator_, rhs, lhs);
     }
 
-    bool gt(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
-        return std::invoke(comparator_, rhs, lhs);
+    inline bool gt(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
+        return std::invoke(comparator_, lhs, rhs);
     }
 
-    bool ge(const value_type &lhs, const value_type &rhs) const
-            noexcept(std::is_nothrow_invocable_v<Compare, const value_type&,
-                                                 const value_type&>)
-    {
+    inline bool ge(const value_type &lhs, const value_type &rhs) const
+    noexcept(IS_NOTHROW_COMPARABLE) {
         return not std::invoke(comparator_, lhs, rhs);
     }
 
-    RebindAllocT alloc_;
+    RebindAllocT alloc_{ };
     OwnerT root_;
-    Compare comparator_;
-    size_t size_;
+    Compare comparator_{ };
+    size_t size_ = 0;
 };
 
 template <typename T, typename Compare, typename Allocator>
 void swap(FibonacciHeap<T, Compare, Allocator> &lhs,
           FibonacciHeap<T, Compare, Allocator> &rhs)
-    noexcept(noexcept(lhs.swap(rhs))
-{
+noexcept(noexcept(lhs.swap(rhs))) {
     lhs.swap(rhs);
 }
 
