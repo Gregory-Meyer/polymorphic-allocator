@@ -72,31 +72,18 @@ class FibonacciHeap {
         bool is_marked = false;
     };
 
-    static inline constexpr bool IS_NOTHROW_COMPARABLE =
-        std::is_nothrow_invocable_v<const Compare&, const T&, const T&>;
+    template <typename R, typename L>
+    struct IsComparable {
+        static inline constexpr bool value =
+            std::is_invocable_v<const Compare&, R, L>
+            and std::is_invocable_v<const Compare&, L, R>;
+    };
 
-    static inline constexpr bool IS_NOTHROW_SWAPPABLE =
-        std::is_nothrow_swappable_v<RebindAllocT>
-        and std::is_nothrow_swappable_v<OwnerT>
-        and std::is_nothrow_swappable_v<Compare>;
-
-    static inline constexpr bool ALLOC_IS_NOTHROW_CONSTRUCTIBLE =
-        std::is_nothrow_constructible_v<Allocator, const RebindAllocT&>;
-
-    static inline constexpr bool IS_NOTHROW_MOVE_ASSIGNABLE =
-        std::is_nothrow_move_assignable_v<RebindAllocT>
-        and std::is_nothrow_move_assignable_v<Compare>;
-
-    static inline constexpr bool IS_NOTHROW_DEFAULT_CONSTRUCTIBLE =
-        std::is_nothrow_default_constructible_v<RebindAllocT>
-        and std::is_nothrow_default_constructible_v<OwnerT>
-        and std::is_nothrow_default_constructible_v<Compare>;
-
-    template <typename Iterator>
-    struct IsValidIterator {
-        static inline constexpr bool value = std::is_convertible_v<
-            typename std::iterator_traits<Iterator>::value_type, T
-        >;
+    template <typename R = const T&, typename L = const T&>
+    struct IsNothrowComparable {
+        static inline constexpr bool value =
+            std::is_nothrow_invocable_v<const Compare&, R, L>
+            and std::is_nothrow_invocable_v<const Compare&, L, R>;
     };
 
 public:
@@ -109,22 +96,21 @@ public:
     using difference_type = std::ptrdiff_t;
     using reference = value_type&;
     using const_reference = const value_type&;
-    using pointer = typename std::allocator_traits<Allocator>::pointer;
-    using const_pointer =
-        typename std::allocator_traits<Allocator>::const_pointer;
+    using pointer = typename TraitsT::pointer;
+    using const_pointer = typename TraitsT::const_pointer;
     using iterator = Iterator;
     using const_iterator = Iterator;
-    using reverse_iterator = std::reverse_iterator<Iterator>;
-    using const_reverse_iterator = std::reverse_iterator<Iterator>;
 
     class Iterator {
+        using TraitsT = std::allocator_traits<Allocator>;
+
     public:
         friend FibonacciHeap;
 
-        using difference_type = FibonacciHeap::difference_type;
-        using value_type = FibonacciHeap::value_type;
-        using pointer = FibonacciHeap::const_pointer;
-        using reference = FibonacciHeap::const_reference;
+        using difference_type = std::ptrdiff_t;
+        using value_type = T;
+        using pointer = typename TraitsT::pointer;
+        using reference = const T&;
         using iterator_category = std::forward_iterator_tag;
 
         constexpr Iterator() noexcept = default;
@@ -144,15 +130,11 @@ public:
         Iterator& operator++() {
             assert(current_);
 
-            if (current_->child) {
-                current_ = current_->child;
-            } else if (current_->right) {
-                if (current_->parent) {
-                    current_ = current_->parent;
-                } else {
-                    current_ = nullptr;
-                }
-            } else if (current_->parent) {
+            if (current_->child) { // first try descending
+                current_ = current_->child.get();
+            } else if (current_->right) { // then try the sibling
+                current_ = current_->right.get();
+            } else if (current_->parent) { // then try finding the next highest sibling
                 do {
                     current_ = current_->parent;
 
@@ -191,7 +173,59 @@ public:
         const Node *current_ = nullptr;
     };
     
-    FibonacciHeap() noexcept(IS_NOTHROW_DEFAULT_CONSTRUCTIBLE) = default;
+    FibonacciHeap() = default;
+
+    // FibonacciHeap(const FibonacciHeap &other);
+
+    FibonacciHeap(FibonacciHeap &&other) = default;
+
+    template <typename =
+                  std::enable_if_t<std::is_copy_constructible_v<value_compare>>>
+    FibonacciHeap(const value_compare &comparator)
+    noexcept(std::is_nothrow_copy_constructible_v<value_compare>)
+    : comparator_{ comparator } { }
+
+    template <typename =
+                  std::enable_if_t<std::is_move_constructible_v<value_compare>>>
+    FibonacciHeap(value_compare &&comparator)
+    noexcept(std::is_nothrow_move_constructible_v<value_compare>)
+    : comparator_{ std::move(comparator) } { }
+
+    FibonacciHeap(const allocator_type &allocator) noexcept
+    : alloc_{ allocator } { }
+
+    FibonacciHeap(allocator_type &&allocator) noexcept
+    : alloc_{ std::move(allocator) } { }
+
+    template <typename Iterator,
+              typename = std::enable_if_t<std::is_convertible_v<
+                  typename std::iterator_traits<Iterator>::value_type, T
+              >>>
+    FibonacciHeap(const Iterator first, const Iterator last,
+                  const value_compare &comparator = value_compare{ },
+                  const allocator_type &allocator = allocator_type{ })
+    : alloc_{ allocator }, comparator_{ comparator } {
+        insert(first, last);
+    }
+
+    template <typename Iterator,
+              typename = std::enable_if_t<std::is_convertible_v<
+                  typename std::iterator_traits<Iterator>::value_type, T
+              >>>
+    FibonacciHeap(const Iterator first, const Iterator last,
+                  const allocator_type &allocator)
+    : alloc_{ allocator } {
+        insert(first, last);
+    }
+
+    FibonacciHeap(const std::initializer_list<value_type> init,
+                  const value_compare &comparator = value_compare{ },
+                  const allocator_type &allocator = allocator_type{ })
+    : FibonacciHeap{ init.begin(), init.end(), comparator, allocator } { }
+
+    FibonacciHeap(const std::initializer_list<value_type> init,
+                  const allocator_type &allocator)
+    : FibonacciHeap{ init.begin(), init.end(), value_compare{ }, allocator } { }
 
     // FibonacciHeap& operator=(const FibonacciHeap &other);
 
@@ -200,9 +234,24 @@ public:
 
     // FibonacciHeap& operator=(std::initializer_list<value_type> ilist);
 
-    allocator_type get_allocator() const
-    noexcept(ALLOC_IS_NOTHROW_CONSTRUCTIBLE) {
+    allocator_type get_allocator() const noexcept {
         return allocator_type{ alloc_ };
+    }
+
+    const_iterator begin() const noexcept {
+        return Iterator{ *root_ };
+    }
+
+    const_iterator cbegin() const noexcept {
+        return begin();
+    }
+
+    const_iterator end() const noexcept {
+        return Iterator{ };
+    }
+
+    const_iterator cend() const noexcept {
+        return end();
     }
 
     reference top() {
@@ -238,7 +287,9 @@ public:
     }
 
     template <typename Iterator,
-              typename = std::enable_if_t<IsValidIterator<Iterator>::value>>
+              typename = std::enable_if_t<std::is_convertible_v<
+                  typename std::iterator_traits<Iterator>::value_type, T
+              >>>
     void insert(Iterator first, const Iterator last) {
         for (; first != last; ++first) {
             push(*first);
@@ -255,13 +306,14 @@ public:
     }
 
     void pop() {
-        static_assert(false, "pop not implemented yet");
+        //static_assert(false, "pop not implemented yet");
         assert(root_);
 
         OwnerT child = std::move(root_->child);
     }
 
-    void swap(FibonacciHeap &other) noexcept(IS_NOTHROW_SWAPPABLE) {
+    void swap(FibonacciHeap &other)
+    noexcept(std::is_nothrow_swappable_v<Compare>) {
         using std::swap;
 
         swap(alloc_, other.alloc_);
@@ -288,39 +340,68 @@ private:
         assert(not node->right);
         assert(node->rank == 0);
 
-        if (empty()) {
-            root_ = std::move(node);
-        } else if (lt(root_->data, node->data)) {
-            ++root_->rank;
-
-            if (root_->child) {
-                node->right = std::move(root_->child);
-                node->right->left = node.get();
-            }
-
-            root_->child = std::move(node);
-            root_->child->parent = root_.get();
-        } else {
-            OwnerT old_root = std::move(root_);
-            root_ = std::move(node);
-            root_->child = std::move(old_root);
-            root_->child->parent = root_.get();
-
-            root_->rank = root_->child->rank + 1;
-        }
+        root_ = meld_trees(std::move(node), std::move(root_));
 
         ++size_;
     }
 
+    // returns the new root of the melded tree
+    OwnerT meld_trees(OwnerT first, OwnerT second) const
+    noexcept(IsNothrowComparable<>::value) {
+        if (not first and not second) {
+            return OwnerT{ };
+        } else if (not first and second) {
+            return second;
+        } else if (first and not second) {
+            return first;
+        }
+
+        // first and second should be the heads of trees
+        assert(not first->parent);
+        assert(not first->left);
+        assert(not first->right);
+        assert(not second->parent);
+        assert(not second->left);
+        assert(not second->right);
+
+        if (lt(first->data, second->data)) {
+            if (second->child) {
+                second->child->left = first.get();
+                first->right = std::move(second->child);
+            }
+
+            first->parent = second.get();
+            second->child = std::move(first);
+            ++second->rank;
+
+            return second;
+        }
+        
+        // return first as head if equal
+        if (first->child) {
+            first->child->left = second.get();
+            second->right = std::move(first->child);
+        }
+
+        second->parent = first.get();
+        first->child = std::move(second);
+        ++first->rank;
+
+        return first;
+    }
+
     void update_priority(Node *const node) noexcept {
-        static_assert(false, "update_priority not implemented");
+        //static_assert(false, "update_priority not implemented");
     }
 
     inline NodeDeleter make_deleter() noexcept {
         return NodeDeleter{ alloc_ };
     }
 
-    template <typename ...Args>
+    template <typename ...Args,
+              typename = std::enable_if_t<
+                  std::is_constructible_v<Node, Args...>
+              >>
     OwnerT construct_node(Args &&...args) {
         Node *node = RebindTraitsT::allocate(alloc_, 1);
         RebindTraitsT::construct(alloc_, node, std::forward<Args>(args)...);
@@ -328,41 +409,61 @@ private:
         return OwnerT{ node, make_deleter() };
     }
 
-    inline bool eq(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return not std::invoke(comparator_, lhs, rhs)
-               and not std::invoke(comparator_, rhs, lhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool eq(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return not std::invoke(comparator_, std::forward<L>(lhs),
+                               std::forward<R>(rhs))
+               and not std::invoke(comparator_, std::forward<R>(rhs),
+                                   std::forward<L>(lhs));
     }
 
-    inline bool ne(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return std::invoke(comparator_, lhs, rhs)
-               or std::invoke(comparator_, rhs, lhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool ne(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return std::invoke(comparator_, std::forward<L>(lhs),
+                           std::forward<R>(rhs))
+               or std::invoke(comparator_, std::forward<R>(rhs),
+                              std::forward<L>(lhs));
     }
 
-    inline bool lt(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return std::invoke(comparator_, lhs, rhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool lt(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return std::invoke(comparator_, std::forward<L>(lhs),
+                           std::forward<R>(rhs));
     }
 
-    inline bool le(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return not std::invoke(comparator_, rhs, lhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool le(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return not std::invoke(comparator_, std::forward<R>(rhs),
+                               std::forward<L>(lhs));
     }
 
-    inline bool gt(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return std::invoke(comparator_, lhs, rhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool gt(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return std::invoke(comparator_, std::forward<R>(rhs),
+                           std::forward<L>(lhs));
     }
 
-    inline bool ge(const value_type &lhs, const value_type &rhs) const
-    noexcept(IS_NOTHROW_COMPARABLE) {
-        return not std::invoke(comparator_, lhs, rhs);
+    template <typename L, typename R,
+              typename = std::enable_if_t<IsComparable<L, R>::value>>
+    inline bool ge(L &&lhs, R &&rhs) const
+    noexcept(IsNothrowComparable<L, R>::value) {
+        return not std::invoke(comparator_, std::forward<L>(lhs),
+                               std::forward<R>(rhs));
     }
 
     RebindAllocT alloc_{ };
     OwnerT root_;
-    Compare comparator_{ };
+    value_compare comparator_{ };
     size_t size_ = 0;
 };
 
